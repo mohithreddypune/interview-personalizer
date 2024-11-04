@@ -1,0 +1,301 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Interview Coach — Global Styles
+   Refined, professional aesthetic. Inspired by modern SaaS marketing
+   (Linear, Stripe, Vercel). Clean typography, soft depth, restrained color.
+───────────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Surfaces */
+  --bg:           #FAFAF7;
+  --surface:      #FFFFFF;
+  --surface-2:    #F6F6F2;
+  --surface-3:    #F0F0EB;
+
+  /* Text */
+  --text:         #0A0A0A;
+  --text-2:       #404040;
+  --text-3:       #737373;
+  --text-4:       #A3A3A3;
+
+  /* Brand — single, restrained accent */
+  --brand:        #4F46E5;
+  --brand-hover:  #4338CA;
+  --brand-soft:   #EEF2FF;
+  --brand-ring:   rgba(79, 70, 229, 0.18);
+
+  /* Borders */
+  --border:       #E7E5E0;
+  --border-2:     #DAD8D2;
+  --border-strong:#C4C2BC;
+
+  /* Status colors (muted, professional) */
+  --success:      #059669;
+  --warning:      #D97706;
+  --danger:       #DC2626;
+  --info:         #2563EB;
+
+  /* Shadows */
+  --shadow-xs:    0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm:    0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md:    0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04);
+  --shadow-lg:    0 12px 32px -8px rgba(15, 23, 42, 0.10), 0 4px 12px -2px rgba(15, 23, 42, 0.06);
+  --shadow-xl:    0 24px 48px -12px rgba(15, 23, 42, 0.14), 0 8px 16px -4px rgba(15, 23, 42, 0.06);
+
+  /* Radii */
+  --r-sm:         6px;
+  --r-md:         8px;
+  --r-lg:         12px;
+  --r-xl:         16px;
+}
+
+html, body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.011em;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ─── Subtle texture (almost invisible, just adds depth) ─────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 600px at 80% -200px, rgba(79, 70, 229, 0.05), transparent 60%),
+    radial-gradient(900px 480px at -10% 0%, rgba(79, 70, 229, 0.025), transparent 60%);
+}
+body > * { position: relative; z-index: 1; }
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #D4D2CC;
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #B8B6B0; background-clip: padding-box; }
+
+/* ─── Inputs ─────────────────────────────────────────────────────────── */
+button, input, textarea, select {
+  font-family: inherit;
+  color: var(--text);
+}
+textarea, input { background: transparent; resize: vertical; }
+textarea:focus, input:focus, button:focus { outline: none; }
+
+textarea, input {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+textarea:focus-visible, input:focus-visible {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 4px var(--brand-ring) !important;
+}
+textarea::placeholder, input::placeholder { color: var(--text-4); }
+
+::selection { background: rgba(79, 70, 229, 0.20); color: var(--text); }
+
+/* ─── Animations ─────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUpSm {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+  40%           { opacity: 1;   transform: scale(1); }
+}
+
+/* ─── Utility classes ────────────────────────────────────────────────── */
+.serif {
+  font-family: 'Instrument Serif', 'Iowan Old Style', 'Apple Garamond', Georgia, serif;
+  letter-spacing: -0.012em;
+}
+
+.fade-in { animation: fadeIn 0.35s ease both; }
+.slide-up { animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.slide-up-sm { animation: slideUpSm 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Loading spinner — neutral, minimal */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(15, 23, 42, 0.10);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.spinner.on-brand {
+  border-color: rgba(255, 255, 255, 0.30);
+  border-top-color: #fff;
+}
+
+/* Pulsing dots (used in loading text) */
+.dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-4);
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+.dot:nth-child(2) { animation-delay: 0.18s; }
+.dot:nth-child(3) { animation-delay: 0.36s; }
+
+/* ─── Buttons ────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+              box-shadow 0.15s ease, transform 0.08s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn:focus-visible { box-shadow: 0 0 0 4px var(--brand-ring); }
+.btn:disabled      { opacity: 0.55; cursor: not-allowed; }
+.btn:active:not(:disabled) { transform: translateY(0.5px); }
+
+.btn-primary {
+  background: var(--text);
+  color: #FFFFFF;
+  box-shadow: var(--shadow-sm), inset 0 0.5px 0 rgba(255,255,255,0.15);
+}
+.btn-primary:hover:not(:disabled) { background: #1F1F1F; box-shadow: var(--shadow-md), inset 0 0.5px 0 rgba(255,255,255,0.18); }
+
+.btn-brand {
+  background: var(--brand);
+  color: #FFFFFF;
+  box-shadow: var(--shadow-sm), inset 0 0.5px 0 rgba(255,255,255,0.18);
+}
+.btn-brand:hover:not(:disabled) { background: var(--brand-hover); box-shadow: var(--shadow-md), inset 0 0.5px 0 rgba(255,255,255,0.20); }
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: var(--shadow-xs);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+}
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
+/* ─── Card ───────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+.card-elevated {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Hover lift for interactive cards */
+.lift {
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.15s ease;
+}
+.lift:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-2);
+}
+
+/* ─── Pills / badges ─────────────────────────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.3;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+/* ─── Subtle shimmer for hero accent (very restrained) ───────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text) 0%,
+    var(--text) 40%,
+    var(--brand) 50%,
+    var(--text) 60%,
+    var(--text) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 7s ease-in-out infinite;
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
