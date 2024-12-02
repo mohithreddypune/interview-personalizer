@@ -5,153 +5,172 @@ import type { Question } from '@/app/page'
 
 interface Props {
   questions: Question[]
+  starred?: Set<number>
 }
 
-// Generates a Notion-compatible Markdown study guide from all questions.
-// Notion imports standard Markdown perfectly — paste or use the Import feature.
-function toMarkdown(questions: Question[]): string {
+function toMarkdown(questions: Question[], opts: { onlyStarred?: boolean; starred?: Set<number> } = {}): string {
+  const list = opts.onlyStarred && opts.starred
+    ? questions.filter(q => opts.starred!.has(q.id))
+    : questions
+
   const date = new Date().toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
   })
 
   const categories = [
-    { id: 'behavioral',    label: '🧠 Behavioral Questions'    },
-    { id: 'technical',     label: '⚙️ Technical Questions'      },
-    { id: 'system-design', label: '🏗️ System Design Questions'  },
-    { id: 'situational',   label: '🎭 Situational Questions'    },
+    { id: 'behavioral',    label: 'Behavioral Questions'    },
+    { id: 'technical',     label: 'Technical Questions'      },
+    { id: 'system-design', label: 'System Design Questions'  },
+    { id: 'situational',   label: 'Situational Questions'    },
   ]
 
-  const header = `# 🎯 Interview Preparation Guide\n\n**Generated:** ${date}  \n**Questions:** ${questions.length}\n\n---\n\n`
+  const titleSuffix = opts.onlyStarred ? ' — Starred' : ''
+  const header = `# Interview Preparation Guide${titleSuffix}\n\n**Generated:** ${date}  \n**Questions:** ${list.length}\n\n---\n\n`
 
   const toc = categories
     .map(c => {
-      const count = questions.filter(q => q.category === c.id).length
-      return count > 0 ? `- [${c.label}](#${c.id}) (${count} questions)` : null
+      const count = list.filter(q => q.category === c.id).length
+      return count > 0 ? `- ${c.label} (${count})` : null
     })
     .filter(Boolean)
     .join('\n')
 
   const body = categories
     .map(({ id, label }) => {
-      const qs = questions.filter(q => q.category === id)
+      const qs = list.filter(q => q.category === id)
       if (qs.length === 0) return ''
-
-      const blocks = qs
-        .map(
-          q =>
-            `### Q${q.id}. ${q.question}\n\n` +
-            `> **Difficulty:** ${q.difficulty} | **Why asked:** ${q.whyAsked}\n\n` +
-            `#### 📍 Situation\n${q.situation}\n\n` +
-            `#### 🎯 Task\n${q.task}\n\n` +
-            `#### ⚡ Action\n${q.action}\n\n` +
-            `#### 📈 Result\n${q.result}\n\n` +
-            `> 💡 **Tip:** ${q.tip}\n\n---\n`
-        )
-        .join('\n')
-
+      const blocks = qs.map(q =>
+        `### Q${q.id}. ${q.question}\n\n` +
+        `> **Difficulty:** ${q.difficulty} | **Why asked:** ${q.whyAsked}\n\n` +
+        `**Situation**\n${q.situation}\n\n` +
+        `**Task**\n${q.task}\n\n` +
+        `**Action**\n${q.action}\n\n` +
+        `**Result**\n${q.result}\n\n` +
+        `> **Tip:** ${q.tip}\n\n---\n`
+      ).join('\n')
       return `## ${label}\n\n${blocks}`
     })
     .filter(Boolean)
     .join('\n')
 
-  return header + `## Table of Contents\n\n${toc}\n\n---\n\n` + body
+  return header + `## Table of Contents\n\n${toc || '_(empty)_'}\n\n---\n\n` + body
 }
 
-export default function ExportButton({ questions }: Props) {
-  const [copied, setCopied] = useState(false)
+export default function ExportButton({ questions, starred }: Props) {
+  const [copied, setCopied]   = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
 
   if (questions.length === 0) return null
+  const starredCount = starred?.size ?? 0
 
-  const handleDownload = () => {
-    const md   = toMarkdown(questions)
+  const download = (md: string, filename: string) => {
     const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' })
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
     a.href     = url
-    a.download = 'interview-prep-guide.md'
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const handleCopyAll = async () => {
-    const md = toMarkdown(questions)
-    await navigator.clipboard.writeText(md)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2500)
+  const handleDownloadAll = () => {
+    download(toMarkdown(questions), 'interview-prep.md')
+    setShowMenu(false)
   }
 
-  const baseBtn: React.CSSProperties = {
-    padding: '10px 16px',
-    borderRadius: 10,
-    fontSize: 12.5,
-    fontWeight: 600,
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    transition: 'transform 0.15s ease, background 0.2s, border-color 0.2s, box-shadow 0.2s',
+  const handleDownloadStarred = () => {
+    download(toMarkdown(questions, { onlyStarred: true, starred }), 'interview-prep-starred.md')
+    setShowMenu(false)
+  }
+
+  const handleCopyAll = async () => {
+    await navigator.clipboard.writeText(toMarkdown(questions))
+    setCopied(true)
+    setShowMenu(false)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        gap: 10,
-        flexWrap: 'wrap',
-        alignItems: 'center',
-      }}
-    >
+    <div style={{ position: 'relative', display: 'inline-flex', gap: 8 }}>
       <button
-        onClick={handleDownload}
-        style={{
-          ...baseBtn,
-          background:
-            'linear-gradient(135deg, rgba(124,107,255,0.20) 0%, rgba(34,211,238,0.16) 100%)',
-          border: '1px solid rgba(124,107,255,0.40)',
-          color: '#C4BEFF',
-          boxShadow: '0 4px 14px rgba(124,107,255,0.18)',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.transform = 'translateY(-1px)'
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(124,107,255,0.28)'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.transform = 'translateY(0)'
-          e.currentTarget.style.boxShadow = '0 4px 14px rgba(124,107,255,0.18)'
-        }}
+        onClick={() => setShowMenu(s => !s)}
+        className="btn btn-primary"
+        style={{ fontSize: 12.5, padding: '8px 14px' }}
       >
-        <span>↓</span> Download .md
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        {copied ? 'Copied!' : 'Export'}
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
-      <button
-        onClick={handleCopyAll}
-        style={{
-          ...baseBtn,
-          background: copied ? 'rgba(52,211,153,0.14)' : 'rgba(255,255,255,0.04)',
-          border: `1px solid ${copied ? 'rgba(52,211,153,0.40)' : 'rgba(255,255,255,0.10)'}`,
-          color: copied ? '#34D399' : 'var(--text-muted)',
-        }}
-        onMouseEnter={e => {
-          if (!copied) e.currentTarget.style.background = 'rgba(255,255,255,0.07)'
-        }}
-        onMouseLeave={e => {
-          if (!copied) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-        }}
-      >
-        {copied ? '✓ Copied to clipboard!' : '⧉ Copy for Notion'}
-      </button>
-
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          fontSize: 11,
-          color: 'var(--text-subtle)',
-          fontStyle: 'italic',
-        }}
-      >
-        Notion → Import → Markdown & CSV
-      </span>
+      {showMenu && (
+        <>
+          <div
+            onClick={() => setShowMenu(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+          />
+          <div
+            className="card-elevated slide-up-sm"
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 6px)',
+              right: 0,
+              minWidth: 240,
+              padding: 6,
+              zIndex: 51,
+            }}
+          >
+            <button onClick={handleDownloadAll} style={menuItemStyle}>
+              <span>Download all (.md)</span>
+              <span style={badgeStyle}>{questions.length}</span>
+            </button>
+            <button
+              onClick={handleDownloadStarred}
+              style={{ ...menuItemStyle, opacity: starredCount === 0 ? 0.5 : 1 }}
+              disabled={starredCount === 0}
+            >
+              <span>Download starred only</span>
+              <span style={badgeStyle}>{starredCount}</span>
+            </button>
+            <div style={{ height: 1, background: 'var(--border)', margin: '4px 8px' }} />
+            <button onClick={handleCopyAll} style={menuItemStyle}>
+              <span>Copy all to clipboard</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
+}
+
+const menuItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  width: '100%',
+  padding: '8px 12px',
+  borderRadius: 6,
+  border: 'none',
+  background: 'transparent',
+  fontSize: 13,
+  color: 'var(--text)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+  transition: 'background 0.12s',
+}
+
+const badgeStyle: React.CSSProperties = {
+  fontSize: 11,
+  padding: '1px 7px',
+  background: 'var(--surface-2)',
+  borderRadius: 999,
+  color: 'var(--text-3)',
+  fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums',
 }

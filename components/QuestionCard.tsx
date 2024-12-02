@@ -6,29 +6,59 @@ import type { Question } from '@/app/page'
 interface Props {
   q: Question
   index: number
+  starred: boolean
+  onToggleStar: (id: number) => void
 }
 
 const CATEGORY_META: Record<string, { label: string; color: string; bg: string }> = {
-  behavioral:      { label: 'Behavioral',    color: '#F59E0B', bg: 'rgba(245,158,11,0.12)'  },
-  technical:       { label: 'Technical',     color: '#3B82F6', bg: 'rgba(59,130,246,0.12)'  },
-  'system-design': { label: 'System Design', color: '#A78BFA', bg: 'rgba(167,139,250,0.12)' },
-  situational:     { label: 'Situational',   color: '#34D399', bg: 'rgba(52,211,153,0.12)'  },
+  behavioral:      { label: 'Behavioral',    color: '#B45309', bg: '#FEF3C7' },
+  technical:       { label: 'Technical',     color: '#1D4ED8', bg: '#DBEAFE' },
+  'system-design': { label: 'System Design', color: '#6D28D9', bg: '#EDE9FE' },
+  situational:    { label: 'Situational',   color: '#047857', bg: '#D1FAE5' },
 }
 
 const DIFFICULTY_META: Record<string, { label: string; color: string }> = {
-  easy:   { label: 'Easy',   color: '#34D399' },
-  medium: { label: 'Medium', color: '#F59E0B' },
-  hard:   { label: 'Hard',   color: '#F87171' },
+  easy:   { label: 'Easy',   color: '#047857' },
+  medium: { label: 'Medium', color: '#B45309' },
+  hard:   { label: 'Hard',   color: '#B91C1C' },
 }
 
 const STAR_SECTIONS = [
-  { key: 'situation', label: 'Situation', icon: '🏢', color: '#60A5FA' },
-  { key: 'task',      label: 'Task',      icon: '🎯', color: '#A78BFA' },
-  { key: 'action',    label: 'Action',    icon: '⚡', color: '#34D399' },
-  { key: 'result',    label: 'Result',    icon: '📈', color: '#F59E0B' },
+  { key: 'situation', label: 'Situation', color: '#2563EB' },
+  { key: 'task',      label: 'Task',      color: '#7C3AED' },
+  { key: 'action',    label: 'Action',    color: '#059669' },
+  { key: 'result',    label: 'Result',    color: '#D97706' },
 ] as const
 
-export default function QuestionCard({ q, index }: Props) {
+const StarIcon = ({ filled }: { filled: boolean }) => (
+  <svg
+    width="16" height="16" viewBox="0 0 24 24"
+    fill={filled ? '#F59E0B' : 'none'}
+    stroke={filled ? '#F59E0B' : 'currentColor'}
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+  >
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </svg>
+)
+
+const ChevronIcon = ({ rotated }: { rotated: boolean }) => (
+  <svg
+    width="14" height="14" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    style={{ transform: rotated ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+  >
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)
+
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+)
+
+export default function QuestionCard({ q, index, starred, onToggleStar }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [copied,   setCopied]   = useState(false)
 
@@ -43,31 +73,32 @@ export default function QuestionCard({ q, index }: Props) {
     `Result: ${q.result}\n\n` +
     `Tip: ${q.tip}`
 
-  const handleCopy = async () => {
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation()
     await navigator.clipboard.writeText(fullAnswer)
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), 1800)
+  }
+
+  const handleStar = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onToggleStar(q.id)
   }
 
   return (
     <div
       className={expanded ? '' : 'lift'}
       style={{
-        background:
-          'linear-gradient(180deg, rgba(17, 26, 46, 0.78) 0%, rgba(11, 18, 32, 0.78) 100%)',
-        backdropFilter: 'blur(12px) saturate(1.15)',
-        WebkitBackdropFilter: 'blur(12px) saturate(1.15)',
+        background: 'var(--surface)',
         border: expanded
-          ? '1px solid rgba(124,107,255,0.45)'
-          : '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 16,
+          ? '1px solid var(--brand)'
+          : '1px solid var(--border)',
+        borderRadius: 'var(--r-lg)',
         overflow: 'hidden',
-        transition: 'border-color 0.2s, box-shadow 0.25s, transform 0.25s',
-        boxShadow: expanded
-          ? '0 0 0 1px rgba(124,107,255,0.18), 0 14px 44px rgba(0,0,0,0.45), 0 0 30px rgba(124,107,255,0.12)'
-          : '0 4px 16px rgba(0,0,0,0.30)',
+        transition: 'border-color 0.2s, box-shadow 0.25s, transform 0.2s',
+        boxShadow: expanded ? 'var(--shadow-lg)' : 'var(--shadow-xs)',
         marginBottom: 12,
-        animation: 'slideIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both',
+        animation: 'slideUpSm 0.4s cubic-bezier(0.22, 1, 0.36, 1) both',
         animationDelay: `${Math.min(index * 0.025, 0.25)}s`,
       }}
     >
@@ -76,7 +107,7 @@ export default function QuestionCard({ q, index }: Props) {
         onClick={() => setExpanded(v => !v)}
         style={{
           width: '100%',
-          padding: '18px 22px',
+          padding: '16px 18px',
           display: 'flex',
           alignItems: 'flex-start',
           gap: 14,
@@ -84,26 +115,27 @@ export default function QuestionCard({ q, index }: Props) {
           border: 'none',
           cursor: 'pointer',
           textAlign: 'left',
+          fontFamily: 'inherit',
         }}
       >
         {/* Question number */}
         <span
           style={{
-            minWidth: 36,
-            height: 36,
-            borderRadius: 10,
-            background:
-              'linear-gradient(135deg, rgba(124,107,255,0.22) 0%, rgba(34,211,238,0.16) 100%)',
-            color: '#C4BEFF',
+            minWidth: 32,
+            height: 32,
+            borderRadius: 8,
+            background: 'var(--surface-2)',
+            color: 'var(--text-2)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 12.5,
-            fontWeight: 700,
+            fontSize: 12,
+            fontWeight: 600,
             fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
             marginTop: 1,
-            border: '1px solid rgba(124,107,255,0.25)',
+            border: '1px solid var(--border)',
             flexShrink: 0,
+            fontVariantNumeric: 'tabular-nums',
           }}
         >
           {String(q.id).padStart(2, '0')}
@@ -111,30 +143,28 @@ export default function QuestionCard({ q, index }: Props) {
 
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Badges row */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             <span
               style={{
-                padding: '3px 10px',
+                padding: '2px 9px',
                 borderRadius: 999,
-                fontSize: 10.5,
-                fontWeight: 700,
-                letterSpacing: '0.04em',
+                fontSize: 11,
+                fontWeight: 500,
                 color: cat.color,
                 background: cat.bg,
-                border: `1px solid ${cat.color}33`,
               }}
             >
               {cat.label}
             </span>
             <span
               style={{
-                padding: '3px 10px',
+                padding: '2px 9px',
                 borderRadius: 999,
-                fontSize: 10.5,
-                fontWeight: 700,
+                fontSize: 11,
+                fontWeight: 500,
                 color: diff.color,
-                background: `${diff.color}1A`,
-                border: `1px solid ${diff.color}33`,
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
               }}
             >
               {diff.label}
@@ -148,21 +178,19 @@ export default function QuestionCard({ q, index }: Props) {
               fontSize: 14.5,
               fontWeight: 500,
               color: 'var(--text)',
-              lineHeight: 1.6,
+              lineHeight: 1.55,
               letterSpacing: '-0.005em',
             }}
           >
             {q.question}
           </p>
 
-          {/* Why asked */}
           {!expanded && (
             <p
               style={{
-                margin: '8px 0 0',
+                margin: '6px 0 0',
                 fontSize: 12,
-                color: 'var(--text-subtle)',
-                fontStyle: 'italic',
+                color: 'var(--text-3)',
               }}
             >
               {q.whyAsked}
@@ -170,85 +198,105 @@ export default function QuestionCard({ q, index }: Props) {
           )}
         </div>
 
+        {/* Star button */}
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={starred ? 'Unstar question' : 'Star question'}
+          aria-pressed={starred}
+          onClick={handleStar}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onToggleStar(q.id)
+            }
+          }}
+          title={starred ? 'Unstar' : 'Star this question'}
+          style={{
+            width: 32, height: 32,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 8,
+            background: starred ? '#FEF3C7' : 'transparent',
+            color: starred ? '#F59E0B' : 'var(--text-4)',
+            transition: 'background 0.15s, color 0.15s, transform 0.15s',
+            flexShrink: 0,
+            marginTop: 2,
+            cursor: 'pointer',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = starred ? '#FDE68A' : 'var(--surface-2)'
+            e.currentTarget.style.color = '#F59E0B'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = starred ? '#FEF3C7' : 'transparent'
+            e.currentTarget.style.color = starred ? '#F59E0B' : 'var(--text-4)'
+          }}
+        >
+          <StarIcon filled={starred} />
+        </span>
+
         {/* Chevron */}
         <span
           style={{
-            color: 'var(--text-subtle)',
-            fontSize: 16,
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s',
-            marginTop: 8,
-            flexShrink: 0,
+            color: 'var(--text-4)',
+            display: 'inline-flex', alignItems: 'center',
+            marginTop: 9, flexShrink: 0,
           }}
         >
-          ▾
+          <ChevronIcon rotated={expanded} />
         </span>
       </button>
 
       {/* ── Expanded body ──────────────────────────────────────────── */}
       {expanded && (
-        <div style={{ padding: '0 22px 22px' }}>
+        <div style={{ padding: '0 18px 20px' }}>
 
           {/* Why asked banner */}
           <div
             style={{
-              background:
-                'linear-gradient(180deg, rgba(124,107,255,0.10) 0%, rgba(34,211,238,0.06) 100%)',
-              border: '1px solid rgba(124,107,255,0.22)',
-              borderRadius: 10,
-              padding: '12px 14px',
-              marginBottom: 18,
-              display: 'flex',
-              gap: 10,
-              alignItems: 'flex-start',
+              background: 'var(--brand-soft)',
+              border: '1px solid #C7D2FE',
+              borderRadius: 'var(--r-md)',
+              padding: '10px 12px',
+              marginBottom: 16,
             }}
           >
-            <span style={{ fontSize: 14 }}>🎤</span>
-            <p style={{ margin: 0, fontSize: 12.5, color: '#C4BEFF', lineHeight: 1.55 }}>
-              <strong style={{ color: '#E0DCFF' }}>Why they ask this:</strong> {q.whyAsked}
+            <p style={{ margin: 0, fontSize: 12.5, color: '#3730A3', lineHeight: 1.5 }}>
+              <strong style={{ color: '#312E81' }}>Why they ask this:</strong> {q.whyAsked}
             </p>
           </div>
 
           {/* STAR sections */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {STAR_SECTIONS.map(({ key, label, icon, color }) => (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+            {STAR_SECTIONS.map(({ key, label, color }) => (
               <div
                 key={key}
                 style={{
-                  background: 'rgba(20, 30, 52, 0.55)',
-                  border: `1px solid ${color}26`,
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
                   borderLeft: `3px solid ${color}`,
-                  borderRadius: 10,
-                  padding: '13px 15px',
+                  borderRadius: 'var(--r-md)',
+                  padding: '11px 13px',
                 }}
               >
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 7,
-                    marginBottom: 7,
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    color: color,
+                    textTransform: 'uppercase',
+                    marginBottom: 5,
                   }}
                 >
-                  <span style={{ fontSize: 14 }}>{icon}</span>
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      fontWeight: 800,
-                      letterSpacing: '0.10em',
-                      color,
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {label}
-                  </span>
+                  {label}
                 </div>
                 <p
                   style={{
                     margin: 0,
                     fontSize: 13.5,
-                    color: '#D6D9E0',
-                    lineHeight: 1.68,
+                    color: 'var(--text)',
+                    lineHeight: 1.65,
                     whiteSpace: 'pre-wrap',
                   }}
                 >
@@ -261,43 +309,42 @@ export default function QuestionCard({ q, index }: Props) {
           {/* Tip box */}
           <div
             style={{
-              marginTop: 14,
-              background:
-                'linear-gradient(180deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.04) 100%)',
-              border: '1px solid rgba(16,185,129,0.22)',
-              borderRadius: 10,
-              padding: '11px 14px',
-              display: 'flex',
-              gap: 10,
+              marginTop: 12,
+              background: '#ECFDF5',
+              border: '1px solid #A7F3D0',
+              borderRadius: 'var(--r-md)',
+              padding: '10px 12px',
             }}
           >
-            <span style={{ fontSize: 14, flexShrink: 0 }}>💡</span>
-            <p style={{ margin: 0, fontSize: 12.5, color: '#6EE7B7', lineHeight: 1.55 }}>
-              <strong style={{ color: '#A7F3D0' }}>Delivery tip:</strong> {q.tip}
+            <p style={{ margin: 0, fontSize: 12.5, color: '#065F46', lineHeight: 1.5 }}>
+              <strong style={{ color: '#064E3B' }}>Delivery tip:</strong> {q.tip}
             </p>
           </div>
 
-          {/* Copy button */}
-          <button
-            onClick={handleCopy}
-            style={{
-              marginTop: 16,
-              padding: '9px 16px',
-              background: copied ? 'rgba(52,211,153,0.16)' : 'rgba(124,107,255,0.14)',
-              border: `1px solid ${copied ? 'rgba(52,211,153,0.40)' : 'rgba(124,107,255,0.32)'}`,
-              borderRadius: 10,
-              color: copied ? '#34D399' : '#C4BEFF',
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-            }}
-          >
-            {copied ? '✓ Copied!' : '⧉ Copy answer to clipboard'}
-          </button>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+            <button
+              onClick={handleCopy}
+              className="btn btn-secondary"
+              style={{ fontSize: 12.5, padding: '7px 12px' }}
+            >
+              {copied ? 'Copied!' : (<><CopyIcon /> Copy answer</>)}
+            </button>
+            <button
+              onClick={handleStar}
+              className="btn btn-secondary"
+              style={{
+                fontSize: 12.5,
+                padding: '7px 12px',
+                color: starred ? '#92400E' : 'var(--text-2)',
+                background: starred ? '#FEF3C7' : 'var(--surface)',
+                borderColor: starred ? '#FDE68A' : 'var(--border)',
+              }}
+            >
+              <StarIcon filled={starred} />
+              {starred ? 'Starred' : 'Star this question'}
+            </button>
+          </div>
         </div>
       )}
     </div>

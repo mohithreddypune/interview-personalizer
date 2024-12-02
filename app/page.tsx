@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import QuestionCard from '@/components/QuestionCard'
 import ExportButton from '@/components/ExportButton'
 
@@ -19,17 +19,26 @@ export interface Question {
 }
 
 type InputTab = 'paste' | 'pdf'
-type Filter   = 'all' | 'behavioral' | 'technical' | 'system-design' | 'situational'
+type Filter   = 'all' | 'starred' | 'behavioral' | 'technical' | 'system-design' | 'situational'
 
 const FILTER_TABS: { id: Filter; label: string }[] = [
   { id: 'all',           label: 'All' },
+  { id: 'starred',       label: 'Starred' },
   { id: 'behavioral',    label: 'Behavioral' },
   { id: 'technical',     label: 'Technical' },
   { id: 'system-design', label: 'System Design' },
   { id: 'situational',   label: 'Situational' },
 ]
 
-// ── Inline icons (no emoji in chrome) ────────────────────────────────────────
+const STARRED_KEY = 'interview-coach.starred.v1'
+
+// ── BeforeInstallPromptEvent (PWA) ───────────────────────────────────────────
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
+// ── Inline icons ─────────────────────────────────────────────────────────────
 const Icon = {
   Logo: () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -66,28 +75,43 @@ const Icon = {
       <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
     </svg>
   ),
+  Search: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  Download: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  ),
+  Keyboard: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <line x1="6" y1="10" x2="6" y2="10" /><line x1="10" y1="10" x2="10" y2="10" />
+      <line x1="14" y1="10" x2="14" y2="10" /><line x1="18" y1="10" x2="18" y2="10" />
+      <line x1="6" y1="14" x2="18" y2="14" />
+    </svg>
+  ),
+  X: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  ),
 }
 
 // ── Style helpers ────────────────────────────────────────────────────────────
 const labelStyle: React.CSSProperties = {
-  fontSize: 12.5,
-  fontWeight: 500,
-  color: 'var(--text-2)',
-  letterSpacing: '-0.005em',
-  marginBottom: 8,
-  display: 'block',
+  fontSize: 12.5, fontWeight: 500, color: 'var(--text-2)',
+  letterSpacing: '-0.005em', marginBottom: 8, display: 'block',
 }
-
 const textareaStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '12px 14px',
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--r-md)',
-  color: 'var(--text)',
-  fontSize: 13.5,
-  lineHeight: 1.6,
-  fontFamily: 'inherit',
+  width: '100%', padding: '12px 14px',
+  background: 'var(--surface)', border: '1px solid var(--border)',
+  borderRadius: 'var(--r-md)', color: 'var(--text)',
+  fontSize: 13.5, lineHeight: 1.6, fontFamily: 'inherit',
   resize: 'vertical' as const,
 }
 
@@ -103,21 +127,85 @@ export default function Home() {
   const [pdfLoading,   setPdfLoading]   = useState(false)
   const [loadingPhase, setLoadingPhase] = useState('')
   const [dragOver,     setDragOver]     = useState(false)
+  const [search,       setSearch]       = useState('')
+  const [starred,      setStarred]      = useState<Set<number>>(new Set())
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+
   const fileRef    = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const searchRef  = useRef<HTMLInputElement>(null)
 
-  // Scroll to results when first question arrives
+  // ── Persist starred to localStorage ─────────────────────────────────
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STARRED_KEY)
+      if (raw) setStarred(new Set(JSON.parse(raw)))
+    } catch { /* noop */ }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STARRED_KEY, JSON.stringify(Array.from(starred)))
+    } catch { /* noop */ }
+  }, [starred])
+
+  // ── PWA install ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInstallPrompt(e as BeforeInstallPromptEvent)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!installPrompt) return
+    await installPrompt.prompt()
+    const { outcome } = await installPrompt.userChoice
+    if (outcome === 'accepted') setInstallPrompt(null)
+  }
+
+  // ── Scroll to results when first question arrives ───────────────────
   useEffect(() => {
     if (questions.length === 1 && resultsRef.current) {
       resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [questions.length])
 
-  // ── PDF upload ─────────────────────────────────────────────────────────
+  // ── Keyboard shortcuts ──────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA'
+      if (e.key === 'Escape') {
+        if (showShortcuts) { setShowShortcuts(false); return }
+        if (search)        { setSearch(''); return }
+      }
+      if (inField) return
+      if (e.key === '?') { e.preventDefault(); setShowShortcuts(s => !s) }
+      if (e.key === '/') { e.preventDefault(); searchRef.current?.focus() }
+      if (e.key.toLowerCase() === 'a') setFilter('all')
+      if (e.key.toLowerCase() === 's') setFilter('starred')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [search, showShortcuts])
+
+  // ── Star toggle ─────────────────────────────────────────────────────
+  const toggleStar = useCallback((id: number) => {
+    setStarred(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  // ── PDF upload ──────────────────────────────────────────────────────
   const handlePdfFile = async (file: File) => {
     if (!file.name.endsWith('.pdf')) {
-      setError('Please upload a .pdf file.')
-      return
+      setError('Please upload a .pdf file.'); return
     }
     setError('')
     setPdfLoading(true)
@@ -130,16 +218,16 @@ export default function Home() {
       setResume(json.text)
       setInputTab('paste')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'PDF upload failed. Please paste your resume as text.')
+      setError(err instanceof Error ? err.message : 'PDF upload failed.')
     } finally {
       setPdfLoading(false)
     }
   }
 
-  // ── Main generation ────────────────────────────────────────────────────
+  // ── Generate ────────────────────────────────────────────────────────
   const generate = useCallback(async () => {
     if (!jd.trim())     { setError('Please paste a job description.'); return }
-    if (!resume.trim()) { setError('Please add your resume (paste or PDF upload).'); return }
+    if (!resume.trim()) { setError('Please add your résumé (paste or PDF upload).'); return }
 
     setError('')
     setLoading(true)
@@ -161,13 +249,12 @@ export default function Home() {
 
       const reader  = res.body!.getReader()
       const decoder = new TextDecoder()
-      let buffer    = ''
-      let count     = 0
+      let buffer = ''
+      let count  = 0
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
 
         const lines = buffer.split('\n')
@@ -185,29 +272,41 @@ export default function Home() {
               setQuestions(prev => [...prev, parsed as Question])
             }
           } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== 'Unexpected token') {
-              throw parseErr
-            }
+            if (parseErr instanceof Error && parseErr.message !== 'Unexpected token') throw parseErr
           }
         }
       }
 
       setLoadingPhase('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
       setLoading(false)
       setLoadingPhase('')
     }
   }, [jd, resume])
 
-  // ── Derived state ──────────────────────────────────────────────────────
-  const filtered = filter === 'all'
-    ? questions
-    : questions.filter(q => q.category === filter)
+  // ── Derived state ───────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let list = questions
+    if (filter === 'starred')      list = list.filter(q => starred.has(q.id))
+    else if (filter !== 'all')     list = list.filter(q => q.category === filter)
+    if (search.trim()) {
+      const s = search.toLowerCase()
+      list = list.filter(q =>
+        q.question.toLowerCase().includes(s) ||
+        q.situation.toLowerCase().includes(s) ||
+        q.action.toLowerCase().includes(s) ||
+        q.result.toLowerCase().includes(s) ||
+        q.whyAsked.toLowerCase().includes(s)
+      )
+    }
+    return list
+  }, [questions, filter, starred, search])
 
-  const counts: Record<string, number> = {
+  const counts: Record<Filter, number> = {
     all:             questions.length,
+    starred:         starred.size,
     behavioral:      questions.filter(q => q.category === 'behavioral').length,
     technical:       questions.filter(q => q.category === 'technical').length,
     'system-design': questions.filter(q => q.category === 'system-design').length,
@@ -218,14 +317,14 @@ export default function Home() {
   const hasResults = questions.length > 0
   const wordCount  = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', position: 'relative' }}>
 
-      {/* ── Top bar ──────────────────────────────────────────────────────── */}
+      {/* ── Top bar ──────────────────────────────────────────────────── */}
       <header
         style={{
-          padding: '0 32px',
+          padding: '0 24px',
           height: 64,
           display: 'flex',
           alignItems: 'center',
@@ -243,8 +342,7 @@ export default function Home() {
           <span
             style={{
               width: 30, height: 30, borderRadius: 8,
-              background: 'var(--text)',
-              color: '#FFF',
+              background: 'var(--text)', color: '#FFF',
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
@@ -260,7 +358,21 @@ export default function Home() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {installPrompt && (
+            <button onClick={handleInstall} className="btn btn-secondary" style={{ fontSize: 12.5, padding: '7px 12px' }}>
+              <Icon.Download />
+              <span>Install app</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowShortcuts(true)}
+            className="btn btn-ghost"
+            title="Keyboard shortcuts (?)"
+            style={{ fontSize: 12.5, padding: '7px 10px' }}
+          >
+            <Icon.Keyboard />
+          </button>
           <span className="pill" style={{ color: 'var(--text-3)' }}>
             <Icon.Bolt />
             <span style={{ marginLeft: 1 }}>Powered by Groq</span>
@@ -268,29 +380,28 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Main layout ───────────────────────────────────────────────────── */}
+      {/* ── Main layout ───────────────────────────────────────────────── */}
       <main
         style={{
           maxWidth: 1320,
           margin: '0 auto',
-          padding: hasResults ? '36px 28px 96px' : '20px 28px 96px',
+          padding: hasResults ? '32px 24px 96px' : '20px 24px 96px',
           display: 'grid',
           gridTemplateColumns: hasResults ? 'minmax(380px, 440px) 1fr' : '1fr',
-          gap: 36,
+          gap: 32,
           alignItems: 'start',
           transition: 'grid-template-columns 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
         }}
       >
-        {/* ── LEFT: Input panel ─────────────────────────────────────────── */}
+        {/* ── LEFT: Input panel ───────────────────────────────────── */}
         <section style={{ position: 'sticky', top: 88 }}>
 
-          {/* Hero (only when no results yet) */}
           {!hasResults && (
             <div style={{ textAlign: 'center', padding: '64px 8px 40px' }} className="fade-in">
               <span
                 className="pill slide-up-sm"
                 style={{
-                  marginBottom: 28,
+                  marginBottom: 26,
                   background: 'var(--surface)',
                   borderColor: 'var(--border)',
                   color: 'var(--text-2)',
@@ -309,16 +420,16 @@ export default function Home() {
               <h1
                 className="slide-up"
                 style={{
-                  fontSize: 'clamp(40px, 5.6vw, 56px)',
+                  fontSize: 'clamp(36px, 5vw, 52px)',
                   fontWeight: 600,
-                  lineHeight: 1.04,
+                  lineHeight: 1.06,
                   letterSpacing: '-0.035em',
-                  marginBottom: 20,
+                  marginBottom: 18,
                   color: 'var(--text)',
                 }}
               >
                 Interview prep,{' '}
-                <span className="serif" style={{ fontStyle: 'italic', fontWeight: 400, color: 'var(--text)' }}>
+                <span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>
                   written from
                 </span>
                 <br />
@@ -329,9 +440,8 @@ export default function Home() {
                 className="slide-up"
                 style={{
                   color: 'var(--text-3)',
-                  fontSize: 16,
-                  maxWidth: 520,
-                  margin: '0 auto',
+                  fontSize: 15.5,
+                  maxWidth: 520, margin: '0 auto',
                   lineHeight: 1.6,
                   animationDelay: '0.05s',
                 }}
@@ -342,18 +452,10 @@ export default function Home() {
           )}
 
           {/* Input card */}
-          <div
-            className="card-elevated slide-up"
-            style={{
-              padding: 24,
-              animationDelay: hasResults ? '0s' : '0.1s',
-            }}
-          >
+          <div className="card-elevated slide-up" style={{ padding: 24, animationDelay: hasResults ? '0s' : '0.1s' }}>
             {hasResults && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.005em' }}>
-                  Inputs
-                </h2>
+                <h2 style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.005em' }}>Inputs</h2>
                 <span style={{ fontSize: 11.5, color: 'var(--text-4)' }}>Streaming live</span>
               </div>
             )}
@@ -368,48 +470,28 @@ export default function Home() {
                 rows={8}
                 style={textareaStyle}
               />
-              <div
-                style={{
-                  fontSize: 11.5, color: 'var(--text-4)', marginTop: 6,
-                  textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                }}
-              >
+              <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 6, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                 {wordCount(jd)} words
               </div>
             </div>
 
-            {/* Resume — tabs: Paste | PDF */}
+            {/* Resume */}
             <div style={{ marginBottom: 20 }}>
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center',
-                  justifyContent: 'space-between', marginBottom: 8,
-                }}
-              >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <label style={{ ...labelStyle, marginBottom: 0 }}>Your résumé</label>
-                <div
-                  style={{
-                    display: 'inline-flex', gap: 2, padding: 3,
-                    background: 'var(--surface-2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                  }}
-                >
+                <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
                   {(['paste', 'pdf'] as InputTab[]).map(tab => (
                     <button
                       key={tab}
                       onClick={() => setInputTab(tab)}
                       style={{
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        fontSize: 11.5,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        border: 'none',
+                        padding: '4px 10px', borderRadius: 6,
+                        fontSize: 11.5, fontWeight: 500, cursor: 'pointer', border: 'none',
                         background: inputTab === tab ? 'var(--surface)' : 'transparent',
                         color: inputTab === tab ? 'var(--text)' : 'var(--text-3)',
                         boxShadow: inputTab === tab ? 'var(--shadow-xs)' : 'none',
                         transition: 'background 0.15s, color 0.15s, box-shadow 0.15s',
+                        fontFamily: 'inherit',
                       }}
                     >
                       {tab === 'paste' ? 'Paste text' : 'Upload PDF'}
@@ -427,12 +509,7 @@ export default function Home() {
                     rows={10}
                     style={textareaStyle}
                   />
-                  <div
-                    style={{
-                      fontSize: 11.5, color: 'var(--text-4)', marginTop: 6,
-                      textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
+                  <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 6, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {wordCount(resume)} words
                   </div>
                 </>
@@ -441,8 +518,7 @@ export default function Home() {
                   onDragOver={e => { e.preventDefault(); setDragOver(true) }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={e => {
-                    e.preventDefault()
-                    setDragOver(false)
+                    e.preventDefault(); setDragOver(false)
                     const file = e.dataTransfer.files[0]
                     if (file) handlePdfFile(file)
                   }}
@@ -451,17 +527,13 @@ export default function Home() {
                     border: `1.5px dashed ${dragOver ? 'var(--brand)' : 'var(--border-2)'}`,
                     borderRadius: 'var(--r-lg)',
                     padding: '34px 20px',
-                    textAlign: 'center',
-                    cursor: 'pointer',
+                    textAlign: 'center', cursor: 'pointer',
                     background: dragOver ? 'var(--brand-soft)' : 'var(--surface-2)',
                     transition: 'all 0.18s',
                   }}
                 >
                   <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".pdf"
-                    style={{ display: 'none' }}
+                    ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }}
                     onChange={e => {
                       const file = e.target.files?.[0]
                       if (file) handlePdfFile(file)
@@ -474,42 +546,20 @@ export default function Home() {
                     </div>
                   ) : resume ? (
                     <div>
-                      <div
-                        style={{
-                          width: 38, height: 38, borderRadius: '50%',
-                          background: 'rgba(5, 150, 105, 0.10)',
-                          color: 'var(--success)',
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          marginBottom: 10,
-                        }}
-                      >
+                      <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#D1FAE5', color: 'var(--success)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
                         <Icon.Check />
                       </div>
-                      <p style={{ color: 'var(--text)', fontSize: 13.5, fontWeight: 500 }}>
-                        Résumé extracted
-                      </p>
+                      <p style={{ color: 'var(--text)', fontSize: 13.5, fontWeight: 500 }}>Résumé extracted</p>
                       <p style={{ color: 'var(--text-3)', fontSize: 12, marginTop: 3 }}>
                         {wordCount(resume)} words · click to replace
                       </p>
                     </div>
                   ) : (
                     <div>
-                      <div
-                        style={{
-                          width: 40, height: 40, borderRadius: 10,
-                          background: 'var(--surface)',
-                          border: '1px solid var(--border)',
-                          color: 'var(--text-2)',
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          marginBottom: 12,
-                          boxShadow: 'var(--shadow-xs)',
-                        }}
-                      >
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12, boxShadow: 'var(--shadow-xs)' }}>
                         <Icon.Upload />
                       </div>
-                      <p style={{ color: 'var(--text)', fontSize: 13.5, fontWeight: 500 }}>
-                        Drop your résumé PDF
-                      </p>
+                      <p style={{ color: 'var(--text)', fontSize: 13.5, fontWeight: 500 }}>Drop your résumé PDF</p>
                       <p style={{ color: 'var(--text-3)', fontSize: 12, marginTop: 3 }}>
                         or click to browse · PDF, max ~5 MB
                       </p>
@@ -527,190 +577,125 @@ export default function Home() {
                   background: '#FEF2F2',
                   border: '1px solid #FECACA',
                   borderRadius: 'var(--r-md)',
-                  padding: '10px 12px',
+                  padding: '12px 14px',
                   marginBottom: 14,
                   fontSize: 12.5,
                   color: '#991B1B',
                   display: 'flex', gap: 10, alignItems: 'flex-start',
                 }}
               >
-                <span style={{ color: 'var(--danger)', marginTop: 2 }}><Icon.Alert /></span>
-                <span style={{ lineHeight: 1.55 }}>{error}</span>
+                <span style={{ color: 'var(--danger)', marginTop: 2, flexShrink: 0 }}><Icon.Alert /></span>
+                <div style={{ lineHeight: 1.55, minWidth: 0, wordBreak: 'break-word' }}>{error}</div>
               </div>
             )}
 
-            {/* Generate button */}
             <button
               onClick={generate}
               disabled={loading || pdfLoading}
               className="btn btn-brand"
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                fontSize: 14,
-                fontWeight: 500,
-              }}
+              style={{ width: '100%', padding: '12px 16px', fontSize: 14, fontWeight: 500 }}
             >
               {loading ? (
-                <>
-                  <div className="spinner on-brand" />
-                  <span>Generating…</span>
-                </>
+                <><div className="spinner on-brand" /><span>Generating…</span></>
               ) : (
-                <>
-                  <Icon.Sparkle />
-                  <span>Generate 30 questions</span>
-                </>
+                <><Icon.Sparkle /><span>Generate 30 questions</span></>
               )}
             </button>
 
-            {/* Tips */}
             {!hasResults && (
-              <div
-                style={{
-                  marginTop: 20,
-                  padding: 16,
-                  background: 'var(--surface-2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--r-md)',
-                }}
-              >
-                <p
-                  style={{
-                    fontSize: 11.5, fontWeight: 600, color: 'var(--text)',
-                    marginBottom: 10, letterSpacing: 0,
-                  }}
-                >
+              <div style={{ marginTop: 20, padding: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
+                <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
                   For best results
                 </p>
                 <ul style={{ paddingLeft: 16, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.75 }}>
                   <li>Paste the <strong style={{ color: 'var(--text)' }}>full</strong> JD — not just the title</li>
-                  <li>Include <strong style={{ color: 'var(--text)' }}>metrics</strong> in your résumé (latency %, scale, team size)</li>
-                  <li>List specific <strong style={{ color: 'var(--text)' }}>technologies</strong> per role (Java, Kafka, AWS…)</li>
-                  <li>Include <strong style={{ color: 'var(--text)' }}>project names</strong> and quantified outcomes</li>
+                  <li>Include <strong style={{ color: 'var(--text)' }}>metrics</strong> in your résumé</li>
+                  <li>List specific <strong style={{ color: 'var(--text)' }}>technologies</strong> per role</li>
+                  <li>Include <strong style={{ color: 'var(--text)' }}>project names</strong> and outcomes</li>
                 </ul>
               </div>
             )}
           </div>
 
           {!hasResults && (
-            <p
-              style={{
-                marginTop: 18, textAlign: 'center',
-                fontSize: 11.5, color: 'var(--text-4)',
-              }}
-              className="fade-in"
-            >
+            <p style={{ marginTop: 18, textAlign: 'center', fontSize: 11.5, color: 'var(--text-4)' }} className="fade-in">
               Your inputs are sent to your Groq endpoint and not stored on this server.
             </p>
           )}
         </section>
 
-        {/* ── RIGHT: Results panel ──────────────────────────────────────── */}
+        {/* ── RIGHT: Results ────────────────────────────────────────── */}
         {hasResults && (
           <section ref={resultsRef} className="slide-up">
 
-            {/* Progress bar (while still loading) */}
+            {/* Progress bar */}
             {loading && (
-              <div
-                className="card"
-                style={{
-                  padding: '14px 18px',
-                  marginBottom: 14,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                }}
-              >
+              <div className="card" style={{ padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div className="spinner" />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      display: 'flex', justifyContent: 'space-between',
-                      marginBottom: 7,
-                    }}
-                  >
-                    <span style={{ fontSize: 12.5, color: 'var(--text-2)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      {loadingPhase}
-                      <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center', marginLeft: 1 }}>
-                        <span className="dot" /><span className="dot" /><span className="dot" />
-                      </span>
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12.5, color: 'var(--text)',
-                        fontWeight: 600, fontVariantNumeric: 'tabular-nums',
-                      }}
-                    >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{loadingPhase}</span>
+                    <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                       {questions.length} / 30
                     </span>
                   </div>
-                  <div
-                    style={{
-                      height: 4,
-                      background: 'var(--surface-3)',
-                      borderRadius: 999,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${progress}%`,
-                        background: 'var(--brand)',
-                        borderRadius: 999,
-                        transition: 'width 0.35s ease',
-                      }}
-                    />
+                  <div style={{ height: 4, background: 'var(--surface-3)', borderRadius: 999, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${progress}%`, background: 'var(--brand)', borderRadius: 999, transition: 'width 0.35s ease' }} />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Results header */}
-            <div
-              className="card"
-              style={{
-                padding: '18px 22px',
-                marginBottom: 16,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 12,
-              }}
-            >
+            {/* Header + export */}
+            <div className="card" style={{ padding: '18px 22px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
               <div>
-                <h2
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 600,
-                    color: 'var(--text)',
-                    marginBottom: 2,
-                    letterSpacing: '-0.012em',
-                  }}
-                >
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 2, letterSpacing: '-0.012em' }}>
                   Your interview questions
                 </h2>
                 <p style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
-                  {questions.length} question{questions.length !== 1 ? 's' : ''} generated
-                  {!loading && ' · click any card to reveal the STAR answer'}
+                  {questions.length} generated{starred.size > 0 ? ` · ${starred.size} starred` : ''}
+                  {!loading && ' · click any card for the answer'}
                 </p>
               </div>
-              {!loading && <ExportButton questions={questions} />}
+              {!loading && <ExportButton questions={questions} starred={starred} />}
+            </div>
+
+            {/* Search */}
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 14px',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r-md)',
+                marginBottom: 12,
+              }}
+            >
+              <span style={{ color: 'var(--text-4)' }}><Icon.Search /></span>
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder='Search questions, situations, results…  (press / to focus)'
+                style={{
+                  flex: 1, border: 'none', outline: 'none',
+                  fontSize: 13.5, color: 'var(--text)',
+                  fontFamily: 'inherit',
+                }}
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="btn btn-ghost" style={{ padding: 5, color: 'var(--text-3)' }}>
+                  <Icon.X />
+                </button>
+              )}
             </div>
 
             {/* Filter tabs */}
-            <div
-              style={{
-                display: 'flex',
-                gap: 6,
-                flexWrap: 'wrap',
-                marginBottom: 16,
-              }}
-            >
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
               {FILTER_TABS.map(tab => {
                 const active = filter === tab.id
+                const isStar = tab.id === 'starred'
                 return (
                   <button
                     key={tab.id}
@@ -718,31 +703,28 @@ export default function Home() {
                     style={{
                       padding: '6px 12px',
                       borderRadius: 999,
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      cursor: 'pointer',
+                      fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
                       border: `1px solid ${active ? 'var(--text)' : 'var(--border)'}`,
                       background: active ? 'var(--text)' : 'var(--surface)',
-                      color: active ? '#FFFFFF' : 'var(--text-2)',
+                      color: active ? '#FFF' : 'var(--text-2)',
                       transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 7,
+                      display: 'inline-flex', alignItems: 'center', gap: 7,
                       fontFamily: 'inherit',
                     }}
                   >
+                    {isStar && (
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill={active ? '#FCD34D' : '#F59E0B'} stroke="none">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    )}
                     {tab.label}
                     {counts[tab.id] > 0 && (
                       <span
                         style={{
-                          padding: '0 6px',
-                          minWidth: 18,
-                          height: 18,
+                          padding: '0 6px', minWidth: 18, height: 18,
                           background: active ? 'rgba(255,255,255,0.18)' : 'var(--surface-2)',
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: active ? '#FFFFFF' : 'var(--text-3)',
+                          borderRadius: 999, fontSize: 11, fontWeight: 600,
+                          color: active ? '#FFF' : 'var(--text-3)',
                           fontVariantNumeric: 'tabular-nums',
                           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         }}
@@ -755,72 +737,112 @@ export default function Home() {
               })}
             </div>
 
-            {/* Question cards */}
+            {/* Cards */}
             <div>
               {filtered.length === 0 && !loading && (
-                <div
-                  className="card"
-                  style={{
-                    textAlign: 'center',
-                    padding: '60px 20px',
-                    color: 'var(--text-3)',
-                    fontSize: 14,
-                  }}
-                >
-                  No questions in this category yet.
+                <div className="card" style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-3)', fontSize: 14 }}>
+                  {filter === 'starred'
+                    ? 'No starred questions yet — tap the star on any question to save it here.'
+                    : search
+                    ? `No matches for "${search}".`
+                    : 'No questions in this category yet.'}
                 </div>
               )}
               {filtered.map((q, i) => (
-                <QuestionCard key={q.id} q={q} index={i} />
+                <QuestionCard
+                  key={q.id} q={q} index={i}
+                  starred={starred.has(q.id)}
+                  onToggleStar={toggleStar}
+                />
               ))}
             </div>
 
-            {/* Footer export (bottom of results) */}
+            {/* Done card */}
             {!loading && questions.length === 30 && (
-              <div
-                className="card"
-                style={{
-                  padding: 22,
-                  marginTop: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: 14,
-                }}
-              >
+              <div className="card" style={{ padding: 22, marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
                 <div>
                   <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
                     All 30 questions ready
                   </p>
                   <p style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
-                    Export as Markdown to study in Notion or any editor.
+                    Export full set or just your starred ones.
                   </p>
                 </div>
-                <ExportButton questions={questions} />
+                <ExportButton questions={questions} starred={starred} />
               </div>
             )}
           </section>
         )}
       </main>
 
-      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      {/* ── Footer ───────────────────────────────────────────────────── */}
       <footer
         style={{
-          maxWidth: 1320,
-          margin: '0 auto',
-          padding: '0 28px 32px',
-          fontSize: 11.5,
-          color: 'var(--text-4)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 8,
+          maxWidth: 1320, margin: '0 auto',
+          padding: '0 24px 32px',
+          fontSize: 11.5, color: 'var(--text-4)',
+          display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
         }}
       >
         <span>© {new Date().getFullYear()} Interview Coach</span>
-        <span>Built with Next.js · Streaming via Groq</span>
+        <span>Built with Next.js · Streaming via Groq · Press <kbd style={kbdStyle}>?</kbd> for shortcuts</span>
       </footer>
+
+      {/* ── Shortcuts modal ──────────────────────────────────────────── */}
+      {showShortcuts && (
+        <div
+          onClick={() => setShowShortcuts(false)}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(10, 10, 10, 0.45)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000,
+            padding: 20,
+            animation: 'fadeIn 0.18s ease',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="card-elevated slide-up-sm"
+            style={{ padding: 28, maxWidth: 380, width: '100%' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600 }}>Keyboard shortcuts</h3>
+              <button onClick={() => setShowShortcuts(false)} className="btn btn-ghost" style={{ padding: 6 }}>
+                <Icon.X />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { key: '/',   desc: 'Focus search' },
+                { key: 'a',   desc: 'Show all questions' },
+                { key: 's',   desc: 'Show starred only' },
+                { key: '?',   desc: 'Toggle this help' },
+                { key: 'Esc', desc: 'Close / clear search' },
+              ].map(s => (
+                <div key={s.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13.5, color: 'var(--text-2)' }}>{s.desc}</span>
+                  <kbd style={kbdStyle}>{s.key}</kbd>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+const kbdStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '2px 8px',
+  fontSize: 11.5,
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+  color: 'var(--text-2)',
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderBottomWidth: 2,
+  borderRadius: 5,
+  fontWeight: 600,
 }

@@ -4,7 +4,9 @@ import { NextRequest } from 'next/server'
 // ── Client ───────────────────────────────────────────────────────────────────
 // Groq exposes an OpenAI-compatible chat-completions API. The official
 // `groq-sdk` mirrors the OpenAI SDK shape, so streaming works the same way.
-const client = new Groq({ apiKey: process.env.GROQ_API_KEY })
+const apiKey = process.env.GROQ_API_KEY
+
+const client = apiKey ? new Groq({ apiKey }) : null
 
 // Default to Llama 3.3 70B (versatile) — strong quality + Groq's signature
 // low-latency token streaming. Override via GROQ_MODEL in .env.local.
@@ -33,17 +35,15 @@ JSON SCHEMA (all fields required):
 {"id":NUMBER,"category":"behavioral"|"technical"|"system-design"|"situational","difficulty":"easy"|"medium"|"hard","question":"QUESTION TEXT","situation":"Specific situation from resume — company name, project name, timeline","task":"Specific task or challenge the candidate had to solve","action":"3-4 concrete steps taken — include actual technologies, methodologies, metrics from resume","result":"Quantified outcome — use real numbers/metrics from resume where possible","whyAsked":"1 sentence: what trait/skill the interviewer is testing","tip":"1 specific, tactical tip for delivering this answer in an interview"}
 
 QUESTION DISTRIBUTION:
-- Questions 1–10: Behavioral (leadership, conflict resolution, ownership, failure/learning, cross-functional collaboration, ambiguity, mentorship, customer impact, initiative, prioritization)
-- Questions 11–20: Technical deep-dives specific to the JD requirements (languages, frameworks, architectures, tools mentioned in the JD)
-- Questions 21–25: System design (design a system relevant to the role — scale, trade-offs, architecture decisions)
-- Questions 26–30: Situational/role-specific (hypotheticals grounded in this specific role's responsibilities)
+- Questions 1–10: Behavioral
+- Questions 11–20: Technical deep-dives specific to the JD
+- Questions 21–25: System design
+- Questions 26–30: Situational/role-specific
 
-PERSONALIZATION RULES (extremely important):
-- Use the candidate's ACTUAL company names, project names, and technologies from the resume
-- Include REAL metrics from the resume (e.g., "1.6M transactions/day", "40% latency reduction")
+PERSONALIZATION RULES:
+- Use the candidate's ACTUAL company names, project names, and technologies
+- Include REAL metrics from the resume
 - Tailor every answer to sound natural in first person
-- For system design, reference systems the candidate has actually built
-- For behavioral, pull specific stories from real work experiences
 - Do NOT invent details not present in the resume
 
 NOW output all 30 JSONL lines:`
@@ -52,24 +52,36 @@ NOW output all 30 JSONL lines:`
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function extractErrMsg(err: unknown): string {
   if (!err) return 'Unknown error'
-  // Groq SDK errors expose .status and .message; sometimes .error.message
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = err as any
-  const status  = e?.status ? `[${e.status}] ` : ''
-  const detail  = e?.error?.message || e?.message || (typeof e === 'string' ? e : 'Unknown error')
+  const status = e?.status ? `[${e.status}] ` : ''
+  const detail =
+    e?.error?.error?.message ||
+    e?.error?.message ||
+    e?.message ||
+    (typeof e === 'string' ? e : 'Unknown error')
   return `${status}${detail}`
 }
 
 // ── Route Handler ────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  // Validate API key is present
-  if (!process.env.GROQ_API_KEY) {
-    return new Response(
-      JSON.stringify({
+  // Validate API key is present and looks plausible
+  if (!apiKey || !client) {
+    return Response.json(
+      {
         error:
-          'GROQ_API_KEY is not configured. Add it to .env.local (get one at https://console.groq.com/keys) and restart the dev server.',
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+          'GROQ_API_KEY is missing. Create a .env.local file in the project root with: GROQ_API_KEY=gsk_... (get one at https://console.groq.com/keys), then restart `npm run dev`.',
+      },
+      { status: 500 }
+    )
+  }
+  if (apiKey.includes('REPLACE_WITH_YOUR_OWN_KEY') || apiKey.length < 20) {
+    return Response.json(
+      {
+        error:
+          'GROQ_API_KEY in .env.local is a placeholder. Replace it with a real key from https://console.groq.com/keys, then restart `npm run dev`.',
+      },
+      { status: 500 }
     )
   }
 
@@ -80,15 +92,14 @@ export async function POST(req: NextRequest) {
     resume = body.resume?.trim()
     if (!jd || !resume) throw new Error('missing fields')
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Request must include jd and resume fields.' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    return Response.json(
+      { error: 'Request must include jd and resume fields.' },
+      { status: 400 }
     )
   }
 
   // Open the upstream stream BEFORE returning, so any auth/model errors
-  // surface as a proper HTTP 500 with a readable JSON body. Once we start
-  // returning a 200 ReadableStream, the browser sees only newline-delimited JSON.
+  // surface as a real HTTP 500 with a readable JSON body.
   let completion
   try {
     completion = await client.chat.completions.create({
@@ -108,14 +119,20 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = extractErrMsg(err)
     console.error('[generate] Groq request failed:', msg, err)
-    return new Response(
-      JSON.stringify({ error: `Groq request failed: ${msg}` }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    return Response.json(
+      {
+        error:
+          msg.includes('401') || msg.toLowerCase().includes('invalid api key')
+            ? `Invalid Groq API key. Double-check GROQ_API_KEY in .env.local and restart the dev server. (${msg})`
+            : msg.toLowerCase().includes('model')
+            ? `Model "${MODEL}" not available. Set GROQ_MODEL in .env.local to a valid model (try "llama-3.3-70b-versatile"). Original error: ${msg}`
+            : `Groq request failed: ${msg}`,
+      },
+      { status: 500 }
     )
   }
 
   const encoder = new TextEncoder()
-
   const stream = new ReadableStream({
     async start(controller) {
       let buffer = ''
@@ -123,11 +140,7 @@ export async function POST(req: NextRequest) {
         for await (const chunk of completion) {
           const delta = chunk.choices?.[0]?.delta?.content
           if (!delta) continue
-
           buffer += delta
-
-          // Flush whole lines as they accumulate, so the client can parse
-          // each JSON object the moment it arrives.
           const newlineIdx = buffer.lastIndexOf('\n')
           if (newlineIdx !== -1) {
             const complete = buffer.slice(0, newlineIdx + 1)
@@ -135,11 +148,7 @@ export async function POST(req: NextRequest) {
             controller.enqueue(encoder.encode(complete))
           }
         }
-
-        if (buffer.trim()) {
-          controller.enqueue(encoder.encode(buffer + '\n'))
-        }
-
+        if (buffer.trim()) controller.enqueue(encoder.encode(buffer + '\n'))
         controller.close()
       } catch (err) {
         const msg = extractErrMsg(err)
