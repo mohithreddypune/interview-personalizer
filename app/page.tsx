@@ -373,10 +373,6 @@ export default function Home() {
           >
             <Icon.Keyboard />
           </button>
-          <span className="pill" style={{ color: 'var(--text-3)' }}>
-            <Icon.Bolt />
-            <span style={{ marginLeft: 1 }}>Powered by Groq</span>
-          </span>
         </div>
       </header>
 
@@ -785,7 +781,7 @@ export default function Home() {
         }}
       >
         <span>© {new Date().getFullYear()} Interview Coach</span>
-        <span>Built with Next.js · Streaming via Groq · Press <kbd style={kbdStyle}>?</kbd> for shortcuts</span>
+        <span>Press <kbd style={kbdStyle}>?</kbd> for keyboard shortcuts</span>
       </footer>
 
       {/* ── Shortcuts modal ──────────────────────────────────────────── */}

@@ -2,49 +2,46 @@ import Groq from 'groq-sdk'
 import { NextRequest } from 'next/server'
 
 // ── Client ───────────────────────────────────────────────────────────────────
-// Groq exposes an OpenAI-compatible chat-completions API. The official
-// `groq-sdk` mirrors the OpenAI SDK shape, so streaming works the same way.
 const apiKey = process.env.GROQ_API_KEY
-
 const client = apiKey ? new Groq({ apiKey }) : null
-
-// Default to Llama 3.3 70B (versatile) — strong quality + Groq's signature
-// low-latency token streaming. Override via GROQ_MODEL in .env.local.
-const MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+const MODEL  = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
 function buildPrompt(jd: string, resume: string): string {
-  return `You are an elite technical interview coach with 15+ years of experience at top tech companies. Analyze the job description and candidate resume below, then generate exactly 30 highly personalized interview questions with model STAR answers drawn from the candidate's REAL experience.
+  return `You are a senior interview coach. Generate 30 personalized interview Q&As as 30 JSONL lines.
 
-═══════════════════════════════════════════════════
 JOB DESCRIPTION:
 ${jd}
 
-═══════════════════════════════════════════════════
-CANDIDATE RESUME:
+RESUME:
 ${resume}
 
-═══════════════════════════════════════════════════
-OUTPUT FORMAT — CRITICAL RULES:
-1. Output EXACTLY 30 lines. Each line is one complete, valid JSON object.
-2. NO other text before, between, or after the JSON lines. No markdown fences. No commentary.
-3. Every string value must be properly escaped (use \\n for newlines inside strings, \\" for quotes).
-4. Keep each JSON object on a SINGLE line — no pretty printing.
-
-JSON SCHEMA (all fields required):
-{"id":NUMBER,"category":"behavioral"|"technical"|"system-design"|"situational","difficulty":"easy"|"medium"|"hard","question":"QUESTION TEXT","situation":"Specific situation from resume — company name, project name, timeline","task":"Specific task or challenge the candidate had to solve","action":"3-4 concrete steps taken — include actual technologies, methodologies, metrics from resume","result":"Quantified outcome — use real numbers/metrics from resume where possible","whyAsked":"1 sentence: what trait/skill the interviewer is testing","tip":"1 specific, tactical tip for delivering this answer in an interview"}
+INTERNAL ANALYSIS (silent — do NOT output):
+- Detect COMPANY NAME from the JD.
+- Detect top 3-5 technologies the JD emphasizes.
+- Pull from resume: company names, project names, metrics, real tech used.
 
 QUESTION DISTRIBUTION:
-- Questions 1–10: Behavioral
-- Questions 11–20: Technical deep-dives specific to the JD
-- Questions 21–25: System design
-- Questions 26–30: Situational/role-specific
+Q1–Q8   Behavioral (leadership, conflict, ownership, failure, ambiguity, mentorship, impact, prioritization)
+Q9–Q13  COMPANY-SPECIFIC. Use the company's known interview style. Name the company in whyAsked.
+        Examples: Amazon → tie to Leadership Principles by name (Customer Obsession, Ownership, Invent and Simplify, Bias for Action, Dive Deep, Have Backbone, Deliver Results). Google → Googleyness, structured problem solving. Meta → impact, move fast. Microsoft → growth mindset. Apple → quality bar. Netflix → judgment, keeper test. Stripe → user obsession, writing. Uber/Lyft → scale.
+        If company unknown/startup: lean on JD's stated values and stack.
+Q14–Q22 Technical deep-dives on the exact stack in the JD.
+Q23–Q26 System design relevant to the product.
+Q27–Q30 Situational hypotheticals from the JD's day-to-day.
 
-PERSONALIZATION RULES:
-- Use the candidate's ACTUAL company names, project names, and technologies
+OUTPUT RULES:
+- Exactly 30 lines, each one valid JSON object on a single line.
+- No commentary, no markdown fences. Use \\n for in-string newlines, \\" for inner quotes.
+
+JSON SCHEMA (every field required):
+{"id":1-30,"category":"behavioral|technical|system-design|situational","difficulty":"easy|medium|hard","question":"...","situation":"2-3 sentences with company, project, timeline, scope from resume","task":"2-3 sentences: problem, success criteria, constraints","action":"4-6 NUMBERED STEPS separated by \\n. Format each as '1. ...' '2. ...' etc. Each step names the tool/tech used, the trade-off considered, the alternative rejected, and WHY. Include metrics, debugging, edge cases. 150-250 words total.","result":"2-3 sentences with quantified outcomes — %, scale, business impact","whyAsked":"1 sentence. Name the company's specific value/principle if applicable.","tip":"1 sentence of tactical delivery advice."}
+
+PERSONALIZATION:
+- Use ACTUAL company names, projects, technologies from the resume
 - Include REAL metrics from the resume
-- Tailor every answer to sound natural in first person
-- Do NOT invent details not present in the resume
+- First-person, natural spoken English
+- Do not invent resume details
 
 NOW output all 30 JSONL lines:`
 }
@@ -65,7 +62,6 @@ function extractErrMsg(err: unknown): string {
 
 // ── Route Handler ────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  // Validate API key is present and looks plausible
   if (!apiKey || !client) {
     return Response.json(
       {
@@ -98,38 +94,49 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Open the upstream stream BEFORE returning, so any auth/model errors
-  // surface as a real HTTP 500 with a readable JSON body.
   let completion
   try {
     completion = await client.chat.completions.create({
       model: MODEL,
       stream: true,
-      temperature: 0.6,
-      max_completion_tokens: 8000,
+      temperature: 0.55,
+      // Sized to fit Groq free-tier 12k TPM cap. Input prompt is ~3-5k tokens,
+      // leaving ~6k for the output. Action sections stay rich (4-6 numbered
+      // steps avg) but won't blow the per-minute budget.
+      max_completion_tokens: 6500,
       messages: [
         {
           role: 'system',
           content:
-            'You output strictly newline-delimited JSON (JSONL). No prose, no markdown fences, no commentary — only the requested JSON objects, one per line.',
+            'You output strictly newline-delimited JSON (JSONL). No prose, no markdown fences, no commentary — only the requested JSON objects, one per line. The "action" field must be richly detailed (200-350 words), with numbered steps and concrete technical decisions.',
         },
         { role: 'user', content: buildPrompt(jd, resume) },
       ],
     })
   } catch (err) {
     const msg = extractErrMsg(err)
+    const lower = msg.toLowerCase()
     console.error('[generate] Groq request failed:', msg, err)
-    return Response.json(
-      {
-        error:
-          msg.includes('401') || msg.toLowerCase().includes('invalid api key')
-            ? `Invalid Groq API key. Double-check GROQ_API_KEY in .env.local and restart the dev server. (${msg})`
-            : msg.toLowerCase().includes('model')
-            ? `Model "${MODEL}" not available. Set GROQ_MODEL in .env.local to a valid model (try "llama-3.3-70b-versatile"). Original error: ${msg}`
-            : `Groq request failed: ${msg}`,
-      },
-      { status: 500 }
-    )
+
+    let friendly: string
+    if (msg.includes('413') || lower.includes('tokens per minute') || lower.includes('tpm')) {
+      friendly =
+        'Hit Groq\'s free-tier rate limit (12,000 tokens/minute). Three ways to fix: ' +
+        '(1) Wait ~60 seconds and try again, ' +
+        '(2) Shorten the JD or résumé, or ' +
+        '(3) Switch to a faster small model — set GROQ_MODEL=llama-3.1-8b-instant in .env.local and restart npm run dev (much higher TPM). ' +
+        `Original: ${msg}`
+    } else if (msg.includes('429') || lower.includes('rate limit')) {
+      friendly = `Groq rate-limited the request. Wait a moment and try again. (${msg})`
+    } else if (msg.includes('401') || lower.includes('invalid api key')) {
+      friendly = `Invalid Groq API key. Double-check GROQ_API_KEY in .env.local and restart the dev server. (${msg})`
+    } else if (lower.includes('model') && (lower.includes('not found') || lower.includes('does not exist') || lower.includes('decommissioned'))) {
+      friendly = `Model "${MODEL}" not available. Set GROQ_MODEL in .env.local to a valid model (try "llama-3.3-70b-versatile" or "llama-3.1-8b-instant") and restart. (${msg})`
+    } else {
+      friendly = `Groq request failed: ${msg}`
+    }
+
+    return Response.json({ error: friendly }, { status: 500 })
   }
 
   const encoder = new TextEncoder()

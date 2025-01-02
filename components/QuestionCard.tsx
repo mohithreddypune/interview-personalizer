@@ -30,6 +30,72 @@ const STAR_SECTIONS = [
   { key: 'result',    label: 'Result',    color: '#D97706' },
 ] as const
 
+// Renders the section text. For Action, parses numbered steps (1. 2. 3.…) into
+// a clean, scannable list. Falls back to pre-wrap paragraph for everything else.
+function ActionContent({ text, isAction }: { text: string; isAction: boolean }) {
+  if (!isAction) {
+    return (
+      <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+        {text}
+      </p>
+    )
+  }
+
+  // Try to detect numbered steps separated by newlines: "1. ... \n 2. ..."
+  const stepPattern = /(?:^|\n)\s*(\d+)[.)]\s+/g
+  const matches: RegExpExecArray[] = []
+  let m: RegExpExecArray | null
+  while ((m = stepPattern.exec(text)) !== null) matches.push(m)
+
+  if (matches.length >= 2) {
+    const steps: { num: string; body: string }[] = []
+    for (let i = 0; i < matches.length; i++) {
+      const cur  = matches[i]
+      const next = matches[i + 1]
+      const start = (cur.index ?? 0) + cur[0].length
+      const end   = next ? next.index : text.length
+      steps.push({ num: cur[1], body: text.slice(start, end).trim() })
+    }
+    return (
+      <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {steps.map(s => (
+          <li key={s.num} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span
+              style={{
+                flexShrink: 0,
+                minWidth: 22,
+                height: 22,
+                borderRadius: 6,
+                background: '#ECFDF5',
+                color: '#047857',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontVariantNumeric: 'tabular-nums',
+                marginTop: 1,
+              }}
+            >
+              {s.num}
+            </span>
+            <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+              {s.body}
+            </p>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+
+  // Otherwise: render newline-preserved paragraph
+  return (
+    <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+      {text}
+    </p>
+  )
+}
+
 const StarIcon = ({ filled }: { filled: boolean }) => (
   <svg
     width="16" height="16" viewBox="0 0 24 24"
@@ -267,43 +333,61 @@ export default function QuestionCard({ q, index, starred, onToggleStar }: Props)
           </div>
 
           {/* STAR sections */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-            {STAR_SECTIONS.map(({ key, label, color }) => (
-              <div
-                key={key}
-                style={{
-                  background: 'var(--surface-2)',
-                  border: '1px solid var(--border)',
-                  borderLeft: `3px solid ${color}`,
-                  borderRadius: 'var(--r-md)',
-                  padding: '11px 13px',
-                }}
-              >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            {STAR_SECTIONS.map(({ key, label, color }) => {
+              const isAction = key === 'action'
+              const text     = q[key]
+              return (
                 <div
+                  key={key}
                   style={{
-                    fontSize: 10.5,
-                    fontWeight: 600,
-                    letterSpacing: '0.06em',
-                    color: color,
-                    textTransform: 'uppercase',
-                    marginBottom: 5,
+                    background: isAction ? '#FAFAF7' : 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderLeft: `3px solid ${color}`,
+                    borderRadius: 'var(--r-md)',
+                    padding: isAction ? '14px 16px' : '11px 13px',
                   }}
                 >
-                  {label}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: isAction ? 8 : 5,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        letterSpacing: '0.06em',
+                        color,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {label}
+                      {isAction && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            padding: '1px 7px',
+                            background: '#EEF2FF',
+                            color: '#4338CA',
+                            borderRadius: 999,
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          DETAILED
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <ActionContent text={text} isAction={isAction} />
                 </div>
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 13.5,
-                    color: 'var(--text)',
-                    lineHeight: 1.65,
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  {q[key]}
-                </p>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Tip box */}
