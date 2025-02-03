@@ -18,6 +18,16 @@ export interface Question {
   tip:        string
 }
 
+interface SavedResume {
+  id:      string
+  name:    string
+  content: string
+  addedAt: number
+}
+
+type Cat  = 'behavioral' | 'technical' | 'system-design' | 'situational'
+type Diff = 'easy' | 'medium' | 'hard'
+
 type InputTab = 'paste' | 'pdf'
 type Filter   = 'all' | 'starred' | 'behavioral' | 'technical' | 'system-design' | 'situational'
 
@@ -30,9 +40,17 @@ const FILTER_TABS: { id: Filter; label: string }[] = [
   { id: 'situational',   label: 'Situational' },
 ]
 
-const STARRED_KEY = 'interview-coach.starred.v1'
+const STARRED_KEY  = 'interview-coach.starred.v1'
+const RESUMES_KEY  = 'interview-coach.resumes.v1'
 
-// ── BeforeInstallPromptEvent (PWA) ───────────────────────────────────────────
+const DEFAULT_CATEGORIES: Record<Cat, number> = {
+  behavioral: 8, technical: 9, 'system-design': 4, situational: 4,
+}
+const DEFAULT_DIFFICULTIES: Record<Diff, number> = {
+  easy: 5, medium: 14, hard: 6,
+}
+
+// ── PWA install ──────────────────────────────────────────────────────────────
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
@@ -40,66 +58,19 @@ interface BeforeInstallPromptEvent extends Event {
 
 // ── Inline icons ─────────────────────────────────────────────────────────────
 const Icon = {
-  Logo: () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="5" />
-      <circle cx="12" cy="12" r="1.4" fill="currentColor" />
-    </svg>
-  ),
-  Sparkle: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
-    </svg>
-  ),
-  Upload: () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </svg>
-  ),
-  Check: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  Alert: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-      <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  ),
-  Bolt: () => (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
-    </svg>
-  ),
-  Search: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
-  Download: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  ),
-  Keyboard: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="6" width="20" height="12" rx="2" />
-      <line x1="6" y1="10" x2="6" y2="10" /><line x1="10" y1="10" x2="10" y2="10" />
-      <line x1="14" y1="10" x2="14" y2="10" /><line x1="18" y1="10" x2="18" y2="10" />
-      <line x1="6" y1="14" x2="18" y2="14" />
-    </svg>
-  ),
-  X: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  ),
+  Logo: () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>),
+  Sparkle: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>),
+  Upload: () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>),
+  Check: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>),
+  Alert: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>),
+  Search: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>),
+  Download: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>),
+  Keyboard: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="10"/><line x1="10" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="14" y2="10"/><line x1="18" y1="10" x2="18" y2="10"/><line x1="6" y1="14" x2="18" y2="14"/></svg>),
+  X: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>),
+  Plus: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>),
+  Trash: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>),
+  Sliders: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>),
+  Chevron: ({ rotated }: { rotated: boolean }) => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: rotated ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}><polyline points="6 9 12 15 18 9"/></svg>),
 }
 
 // ── Style helpers ────────────────────────────────────────────────────────────
@@ -113,6 +84,13 @@ const textareaStyle: React.CSSProperties = {
   borderRadius: 'var(--r-md)', color: 'var(--text)',
   fontSize: 13.5, lineHeight: 1.6, fontFamily: 'inherit',
   resize: 'vertical' as const,
+}
+const numInputStyle: React.CSSProperties = {
+  width: 56, padding: '5px 8px',
+  border: '1px solid var(--border)', borderRadius: 6,
+  background: 'var(--surface)', color: 'var(--text)',
+  fontSize: 13, fontVariantNumeric: 'tabular-nums', textAlign: 'center',
+  fontFamily: 'inherit',
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -132,30 +110,43 @@ export default function Home() {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
 
+  // Saved résumés
+  const [savedResumes, setSavedResumes] = useState<SavedResume[]>([])
+  const [activeResumeId, setActiveResumeId] = useState<string | null>(null)
+  const [showSaveInput, setShowSaveInput]   = useState(false)
+  const [saveName,      setSaveName]        = useState('')
+  const [showResumeManager, setShowResumeManager] = useState(false)
+
+  // Customize mix
+  const [customizing,    setCustomizing]    = useState(false)
+  const [categoryCounts, setCategoryCounts] = useState<Record<Cat, number>>(DEFAULT_CATEGORIES)
+  const [difficultyCounts, setDifficultyCounts] = useState<Record<Diff, number>>(DEFAULT_DIFFICULTIES)
+
   const fileRef    = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<HTMLInputElement>(null)
 
-  // ── Persist starred to localStorage ─────────────────────────────────
+  // ── localStorage hydrate ────────────────────────────────────────────
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STARRED_KEY)
-      if (raw) setStarred(new Set(JSON.parse(raw)))
+      const s = localStorage.getItem(STARRED_KEY)
+      if (s) setStarred(new Set(JSON.parse(s)))
+      const r = localStorage.getItem(RESUMES_KEY)
+      if (r) setSavedResumes(JSON.parse(r))
     } catch { /* noop */ }
   }, [])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STARRED_KEY, JSON.stringify(Array.from(starred)))
-    } catch { /* noop */ }
+    try { localStorage.setItem(STARRED_KEY, JSON.stringify(Array.from(starred))) } catch {}
   }, [starred])
+
+  useEffect(() => {
+    try { localStorage.setItem(RESUMES_KEY, JSON.stringify(savedResumes)) } catch {}
+  }, [savedResumes])
 
   // ── PWA install ─────────────────────────────────────────────────────
   useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault()
-      setInstallPrompt(e as BeforeInstallPromptEvent)
-    }
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e as BeforeInstallPromptEvent) }
     window.addEventListener('beforeinstallprompt', handler)
     return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
@@ -167,21 +158,22 @@ export default function Home() {
     if (outcome === 'accepted') setInstallPrompt(null)
   }
 
-  // ── Scroll to results when first question arrives ───────────────────
+  // Scroll to results when first arrives
   useEffect(() => {
     if (questions.length === 1 && resultsRef.current) {
       resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [questions.length])
 
-  // ── Keyboard shortcuts ──────────────────────────────────────────────
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       const inField = tag === 'INPUT' || tag === 'TEXTAREA'
       if (e.key === 'Escape') {
-        if (showShortcuts) { setShowShortcuts(false); return }
-        if (search)        { setSearch(''); return }
+        if (showShortcuts)        { setShowShortcuts(false); return }
+        if (showResumeManager)    { setShowResumeManager(false); return }
+        if (search)               { setSearch(''); return }
       }
       if (inField) return
       if (e.key === '?') { e.preventDefault(); setShowShortcuts(s => !s) }
@@ -191,9 +183,8 @@ export default function Home() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [search, showShortcuts])
+  }, [search, showShortcuts, showResumeManager])
 
-  // ── Star toggle ─────────────────────────────────────────────────────
   const toggleStar = useCallback((id: number) => {
     setStarred(prev => {
       const next = new Set(prev)
@@ -202,11 +193,35 @@ export default function Home() {
     })
   }, [])
 
+  // ── Saved résumés ───────────────────────────────────────────────────
+  const handleSaveResume = () => {
+    const name = (saveName.trim() || `Résumé ${savedResumes.length + 1}`).slice(0, 60)
+    const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2)
+    const next: SavedResume = { id, name, content: resume, addedAt: Date.now() }
+    setSavedResumes(prev => [next, ...prev])
+    setActiveResumeId(id)
+    setShowSaveInput(false)
+    setSaveName('')
+  }
+
+  const handleSelectSaved = (id: string) => {
+    const r = savedResumes.find(x => x.id === id)
+    if (!r) return
+    setResume(r.content)
+    setActiveResumeId(id)
+    setInputTab('paste')
+  }
+
+  const handleDeleteSaved = (id: string) => {
+    setSavedResumes(prev => prev.filter(r => r.id !== id))
+    if (activeResumeId === id) setActiveResumeId(null)
+  }
+
   // ── PDF upload ──────────────────────────────────────────────────────
   const handlePdfFile = async (file: File) => {
-    if (!file.name.endsWith('.pdf')) {
-      setError('Please upload a .pdf file.'); return
-    }
+    if (!file.name.endsWith('.pdf')) { setError('Please upload a .pdf file.'); return }
     setError('')
     setPdfLoading(true)
     try {
@@ -216,6 +231,7 @@ export default function Home() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'PDF parse failed')
       setResume(json.text)
+      setActiveResumeId(null)
       setInputTab('paste')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'PDF upload failed.')
@@ -225,9 +241,18 @@ export default function Home() {
   }
 
   // ── Generate ────────────────────────────────────────────────────────
+  const totalRequested = useMemo(() => {
+    if (!customizing) return 30
+    return Object.values(categoryCounts).reduce((a, b) => a + (b || 0), 0)
+  }, [customizing, categoryCounts])
+
   const generate = useCallback(async () => {
     if (!jd.trim())     { setError('Please paste a job description.'); return }
-    if (!resume.trim()) { setError('Please add your résumé (paste or PDF upload).'); return }
+    if (!resume.trim()) { setError('Please add your résumé.'); return }
+    if (customizing && totalRequested === 0) {
+      setError('Customize: at least one category must be > 0.')
+      return
+    }
 
     setError('')
     setLoading(true)
@@ -235,11 +260,16 @@ export default function Home() {
     setFilter('all')
     setLoadingPhase('Analyzing job requirements')
 
+    const mix = customizing ? {
+      categories:   categoryCounts,
+      difficulties: difficultyCounts,
+    } : undefined
+
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jd: jd.trim(), resume: resume.trim() }),
+        body: JSON.stringify({ jd: jd.trim(), resume: resume.trim(), mix }),
       })
 
       if (!res.ok) {
@@ -251,6 +281,7 @@ export default function Home() {
       const decoder = new TextDecoder()
       let buffer = ''
       let count  = 0
+      const seen = new Set<number>()
 
       while (true) {
         const { done, value } = await reader.read()
@@ -263,16 +294,23 @@ export default function Home() {
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
-          try {
-            const parsed = JSON.parse(trimmed)
-            if (parsed.error) throw new Error(parsed.error)
-            if (parsed.question) {
-              count++
-              setLoadingPhase(`Generating question ${count} of 30`)
-              setQuestions(prev => [...prev, parsed as Question])
-            }
-          } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== 'Unexpected token') throw parseErr
+
+          // Try parse — silently skip malformed lines (some models leak raw \n
+          // mid-string and the line splits awkwardly)
+          let parsed: Record<string, unknown> | null = null
+          try { parsed = JSON.parse(trimmed) } catch { continue }
+          if (!parsed) continue
+
+          if (typeof parsed.error === 'string') {
+            throw new Error(parsed.error)
+          }
+
+          const q = parsed as unknown as Question
+          if (q && q.question && typeof q.id === 'number' && !seen.has(q.id)) {
+            seen.add(q.id)
+            count++
+            setLoadingPhase(`Generating question ${count} of ${totalRequested}`)
+            setQuestions(prev => [...prev, q])
           }
         }
       }
@@ -284,7 +322,7 @@ export default function Home() {
       setLoading(false)
       setLoadingPhase('')
     }
-  }, [jd, resume])
+  }, [jd, resume, customizing, categoryCounts, difficultyCounts, totalRequested])
 
   // ── Derived state ───────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -313,9 +351,12 @@ export default function Home() {
     situational:     questions.filter(q => q.category === 'situational').length,
   }
 
-  const progress   = Math.round((questions.length / 30) * 100)
-  const hasResults = questions.length > 0
-  const wordCount  = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
+  const progress    = totalRequested > 0 ? Math.round((questions.length / totalRequested) * 100) : 0
+  const hasResults  = questions.length > 0
+  const wordCount   = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
+
+  const catTotal  = Object.values(categoryCounts).reduce((a, b) => a + (b || 0), 0)
+  const diffTotal = Object.values(difficultyCounts).reduce((a, b) => a + (b || 0), 0)
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
@@ -324,14 +365,9 @@ export default function Home() {
       {/* ── Top bar ──────────────────────────────────────────────────── */}
       <header
         style={{
-          padding: '0 24px',
-          height: 64,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
+          padding: '0 24px', height: 64,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          position: 'sticky', top: 0, zIndex: 100,
           background: 'rgba(250, 250, 247, 0.78)',
           backdropFilter: 'saturate(180%) blur(14px)',
           WebkitBackdropFilter: 'saturate(180%) blur(14px)',
@@ -339,13 +375,7 @@ export default function Home() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span
-            style={{
-              width: 30, height: 30, borderRadius: 8,
-              background: 'var(--text)', color: '#FFF',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
+          <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--text)', color: '#FFF', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             <Icon.Logo />
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
@@ -361,16 +391,10 @@ export default function Home() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {installPrompt && (
             <button onClick={handleInstall} className="btn btn-secondary" style={{ fontSize: 12.5, padding: '7px 12px' }}>
-              <Icon.Download />
-              <span>Install app</span>
+              <Icon.Download /><span>Install app</span>
             </button>
           )}
-          <button
-            onClick={() => setShowShortcuts(true)}
-            className="btn btn-ghost"
-            title="Keyboard shortcuts (?)"
-            style={{ fontSize: 12.5, padding: '7px 10px' }}
-          >
+          <button onClick={() => setShowShortcuts(true)} className="btn btn-ghost" title="Keyboard shortcuts (?)" style={{ fontSize: 12.5, padding: '7px 10px' }}>
             <Icon.Keyboard />
           </button>
         </div>
@@ -379,76 +403,38 @@ export default function Home() {
       {/* ── Main layout ───────────────────────────────────────────────── */}
       <main
         style={{
-          maxWidth: 1320,
-          margin: '0 auto',
+          maxWidth: 1320, margin: '0 auto',
           padding: hasResults ? '32px 24px 96px' : '20px 24px 96px',
           display: 'grid',
-          gridTemplateColumns: hasResults ? 'minmax(380px, 440px) 1fr' : '1fr',
-          gap: 32,
-          alignItems: 'start',
+          gridTemplateColumns: hasResults ? 'minmax(380px, 460px) 1fr' : '1fr',
+          gap: 32, alignItems: 'start',
           transition: 'grid-template-columns 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
         }}
       >
         {/* ── LEFT: Input panel ───────────────────────────────────── */}
-        <section style={{ position: 'sticky', top: 88 }}>
+        <section style={{ position: hasResults ? 'sticky' : 'static', top: 88 }}>
 
           {!hasResults && (
-            <div style={{ textAlign: 'center', padding: '64px 8px 40px' }} className="fade-in">
-              <span
-                className="pill slide-up-sm"
-                style={{
-                  marginBottom: 26,
-                  background: 'var(--surface)',
-                  borderColor: 'var(--border)',
-                  color: 'var(--text-2)',
-                  padding: '5px 12px',
-                }}
-              >
-                <span
-                  style={{
-                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                    background: 'var(--success)',
-                  }}
-                />
-                Live · 30 questions in seconds
+            <div style={{ textAlign: 'center', padding: '52px 8px 36px' }} className="fade-in">
+              <span className="pill slide-up-sm" style={{ marginBottom: 24, padding: '5px 12px', color: 'var(--text-2)' }}>
+                <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--success)' }} />
+                Live · {totalRequested} questions in seconds
               </span>
-
-              <h1
-                className="slide-up"
-                style={{
-                  fontSize: 'clamp(36px, 5vw, 52px)',
-                  fontWeight: 600,
-                  lineHeight: 1.06,
-                  letterSpacing: '-0.035em',
-                  marginBottom: 18,
-                  color: 'var(--text)',
-                }}
-              >
+              <h1 className="slide-up" style={{ fontSize: 'clamp(36px, 5vw, 50px)', fontWeight: 600, lineHeight: 1.06, letterSpacing: '-0.035em', marginBottom: 18, color: 'var(--text)' }}>
                 Interview prep,{' '}
-                <span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>
-                  written from
-                </span>
+                <span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>written from</span>
                 <br />
                 your <span className="shimmer">actual experience</span>.
               </h1>
-
-              <p
-                className="slide-up"
-                style={{
-                  color: 'var(--text-3)',
-                  fontSize: 15.5,
-                  maxWidth: 520, margin: '0 auto',
-                  lineHeight: 1.6,
-                  animationDelay: '0.05s',
-                }}
-              >
-                Drop in a job description and your résumé. We generate 30 role-specific questions and write each STAR answer from the work you&apos;ve actually done.
+              <p className="slide-up" style={{ color: 'var(--text-3)', fontSize: 15.5, maxWidth: 520, margin: '0 auto', lineHeight: 1.6, animationDelay: '0.05s' }}>
+                Drop in a job description and your résumé. Get role-specific questions and STAR answers from the work you&apos;ve actually done.
               </p>
             </div>
           )}
 
           {/* Input card */}
           <div className="card-elevated slide-up" style={{ padding: 24, animationDelay: hasResults ? '0s' : '0.1s' }}>
+
             {hasResults && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <h2 style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.005em' }}>Inputs</h2>
@@ -456,14 +442,14 @@ export default function Home() {
               </div>
             )}
 
-            {/* Job Description */}
+            {/* JD */}
             <div style={{ marginBottom: 20 }}>
               <label style={labelStyle}>Job description</label>
               <textarea
                 value={jd}
                 onChange={e => setJd(e.target.value)}
                 placeholder="Paste the full posting — role, responsibilities, requirements, tech stack…"
-                rows={8}
+                rows={7}
                 style={textareaStyle}
               />
               <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 6, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -471,7 +457,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Resume */}
+            {/* Résumé */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <label style={{ ...labelStyle, marginBottom: 0 }}>Your résumé</label>
@@ -496,17 +482,94 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Saved résumés dropdown */}
+              {savedResumes.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '7px 10px',
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-md)',
+                    marginBottom: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500 }}>Saved:</span>
+                  <select
+                    value={activeResumeId ?? ''}
+                    onChange={e => {
+                      if (e.target.value) handleSelectSaved(e.target.value)
+                      else { setResume(''); setActiveResumeId(null) }
+                    }}
+                    style={{
+                      flex: 1, border: 'none', background: 'transparent',
+                      fontSize: 13, color: 'var(--text)', fontFamily: 'inherit',
+                      cursor: 'pointer', outline: 'none',
+                    }}
+                  >
+                    <option value="">— choose a saved résumé —</option>
+                    {savedResumes.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setShowResumeManager(true)}
+                    className="btn btn-ghost"
+                    style={{ fontSize: 11.5, padding: '4px 8px' }}
+                  >
+                    Manage
+                  </button>
+                </div>
+              )}
+
               {inputTab === 'paste' ? (
                 <>
                   <textarea
                     value={resume}
-                    onChange={e => setResume(e.target.value)}
-                    placeholder="Paste your full résumé — work experience, projects, skills, metrics…"
-                    rows={10}
+                    onChange={e => { setResume(e.target.value); setActiveResumeId(null) }}
+                    placeholder="Paste your full résumé — or pick a saved one above."
+                    rows={9}
                     style={textareaStyle}
                   />
-                  <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 6, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {wordCount(resume)} words
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                    {/* Save action */}
+                    {resume.trim() && !activeResumeId && (
+                      showSaveInput ? (
+                        <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            autoFocus
+                            value={saveName}
+                            onChange={e => setSaveName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleSaveResume() }}
+                            placeholder="Name (e.g. SWE Resume v3)"
+                            style={{
+                              padding: '5px 10px', fontSize: 12,
+                              border: '1px solid var(--border)', borderRadius: 6,
+                              background: 'var(--surface)', fontFamily: 'inherit',
+                              outline: 'none', width: 180,
+                            }}
+                          />
+                          <button onClick={handleSaveResume} className="btn btn-primary" style={{ fontSize: 12, padding: '5px 10px' }}>
+                            Save
+                          </button>
+                          <button onClick={() => { setShowSaveInput(false); setSaveName('') }} className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 8px' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setShowSaveInput(true)} className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 8px', color: 'var(--brand)' }}>
+                          <Icon.Plus /> Save this résumé
+                        </button>
+                      )
+                    )}
+                    {activeResumeId && (
+                      <span style={{ fontSize: 11.5, color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon.Check /> Using saved résumé
+                      </span>
+                    )}
+                    <span style={{ fontSize: 11.5, color: 'var(--text-4)', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+                      {wordCount(resume)} words
+                    </span>
                   </div>
                 </>
               ) : (
@@ -521,8 +584,7 @@ export default function Home() {
                   onClick={() => fileRef.current?.click()}
                   style={{
                     border: `1.5px dashed ${dragOver ? 'var(--brand)' : 'var(--border-2)'}`,
-                    borderRadius: 'var(--r-lg)',
-                    padding: '34px 20px',
+                    borderRadius: 'var(--r-lg)', padding: '34px 20px',
                     textAlign: 'center', cursor: 'pointer',
                     background: dragOver ? 'var(--brand-soft)' : 'var(--surface-2)',
                     transition: 'all 0.18s',
@@ -530,15 +592,11 @@ export default function Home() {
                 >
                   <input
                     ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }}
-                    onChange={e => {
-                      const file = e.target.files?.[0]
-                      if (file) handlePdfFile(file)
-                    }}
+                    onChange={e => { const file = e.target.files?.[0]; if (file) handlePdfFile(file) }}
                   />
                   {pdfLoading ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                      <div className="spinner" />
-                      <span style={{ color: 'var(--text-2)', fontSize: 13.5 }}>Extracting text…</span>
+                      <div className="spinner" /><span style={{ color: 'var(--text-2)', fontSize: 13.5 }}>Extracting text…</span>
                     </div>
                   ) : resume ? (
                     <div>
@@ -565,21 +623,100 @@ export default function Home() {
               )}
             </div>
 
-            {/* Error */}
-            {error && (
-              <div
-                className="slide-up-sm"
+            {/* Customize question mix */}
+            <div style={{ marginBottom: 18, border: '1px solid var(--border)', borderRadius: 'var(--r-md)', overflow: 'hidden' }}>
+              <button
+                onClick={() => setCustomizing(c => !c)}
                 style={{
-                  background: '#FEF2F2',
-                  border: '1px solid #FECACA',
-                  borderRadius: 'var(--r-md)',
-                  padding: '12px 14px',
-                  marginBottom: 14,
-                  fontSize: 12.5,
-                  color: '#991B1B',
-                  display: 'flex', gap: 10, alignItems: 'flex-start',
+                  width: '100%', padding: '11px 14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: customizing ? 'var(--surface-2)' : 'var(--surface)',
+                  border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'background 0.15s',
                 }}
               >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
+                  <Icon.Sliders />
+                  Customize question mix
+                  {customizing && (
+                    <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 400 }}>
+                      · {catTotal} questions
+                    </span>
+                  )}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {!customizing && (
+                    <span style={{ fontSize: 11.5, color: 'var(--text-4)' }}>random mix · 30 questions</span>
+                  )}
+                  <span style={{ color: 'var(--text-3)' }}><Icon.Chevron rotated={customizing} /></span>
+                </span>
+              </button>
+
+              {customizing && (
+                <div style={{ padding: '14px 16px 16px', borderTop: '1px solid var(--border)' }} className="slide-up-sm">
+
+                  {/* Categories */}
+                  <div style={{ marginBottom: 18 }}>
+                    <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-2)', marginBottom: 10, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+                      By category
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 8, alignItems: 'center' }}>
+                      {(Object.keys(DEFAULT_CATEGORIES) as Cat[]).map(cat => (
+                        <CountRow
+                          key={cat}
+                          label={cat === 'system-design' ? 'System Design' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          value={categoryCounts[cat]}
+                          onChange={n => setCategoryCounts(prev => ({ ...prev, [cat]: n }))}
+                        />
+                      ))}
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', paddingTop: 6 }}>Total</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: catTotal === 0 ? 'var(--danger)' : 'var(--text)', paddingTop: 6, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                        {catTotal}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Difficulties */}
+                  <div>
+                    <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-2)', marginBottom: 10, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+                      By difficulty
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 8, alignItems: 'center' }}>
+                      {(['easy', 'medium', 'hard'] as Diff[]).map(d => (
+                        <CountRow
+                          key={d}
+                          label={d.charAt(0).toUpperCase() + d.slice(1)}
+                          value={difficultyCounts[d]}
+                          onChange={n => setDifficultyCounts(prev => ({ ...prev, [d]: n }))}
+                        />
+                      ))}
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', paddingTop: 6 }}>Total</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', paddingTop: 6, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                        {diffTotal}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reset */}
+                  <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-4)' }}>
+                      Difficulty totals don&apos;t need to match — they&apos;re a hint to the model.
+                    </span>
+                    <button
+                      onClick={() => { setCategoryCounts(DEFAULT_CATEGORIES); setDifficultyCounts(DEFAULT_DIFFICULTIES) }}
+                      className="btn btn-ghost"
+                      style={{ fontSize: 11.5, padding: '5px 8px' }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="slide-up-sm" style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--r-md)', padding: '12px 14px', marginBottom: 14, fontSize: 12.5, color: '#991B1B', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <span style={{ color: 'var(--danger)', marginTop: 2, flexShrink: 0 }}><Icon.Alert /></span>
                 <div style={{ lineHeight: 1.55, minWidth: 0, wordBreak: 'break-word' }}>{error}</div>
               </div>
@@ -594,28 +731,25 @@ export default function Home() {
               {loading ? (
                 <><div className="spinner on-brand" /><span>Generating…</span></>
               ) : (
-                <><Icon.Sparkle /><span>Generate 30 questions</span></>
+                <><Icon.Sparkle /><span>Generate {totalRequested} questions</span></>
               )}
             </button>
 
             {!hasResults && (
-              <div style={{ marginTop: 20, padding: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
-                <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
-                  For best results
-                </p>
-                <ul style={{ paddingLeft: 16, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.75 }}>
+              <div style={{ marginTop: 18, padding: 14, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
+                <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>For best results</p>
+                <ul style={{ paddingLeft: 16, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
                   <li>Paste the <strong style={{ color: 'var(--text)' }}>full</strong> JD — not just the title</li>
                   <li>Include <strong style={{ color: 'var(--text)' }}>metrics</strong> in your résumé</li>
                   <li>List specific <strong style={{ color: 'var(--text)' }}>technologies</strong> per role</li>
-                  <li>Include <strong style={{ color: 'var(--text)' }}>project names</strong> and outcomes</li>
                 </ul>
               </div>
             )}
           </div>
 
           {!hasResults && (
-            <p style={{ marginTop: 18, textAlign: 'center', fontSize: 11.5, color: 'var(--text-4)' }} className="fade-in">
-              Your inputs are sent to your Groq endpoint and not stored on this server.
+            <p style={{ marginTop: 16, textAlign: 'center', fontSize: 11.5, color: 'var(--text-4)' }} className="fade-in">
+              Saved résumés stay on this device only — never sent anywhere except to generate.
             </p>
           )}
         </section>
@@ -623,8 +757,6 @@ export default function Home() {
         {/* ── RIGHT: Results ────────────────────────────────────────── */}
         {hasResults && (
           <section ref={resultsRef} className="slide-up">
-
-            {/* Progress bar */}
             {loading && (
               <div className="card" style={{ padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div className="spinner" />
@@ -632,7 +764,7 @@ export default function Home() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
                     <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{loadingPhase}</span>
                     <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                      {questions.length} / 30
+                      {questions.length} / {totalRequested}
                     </span>
                   </div>
                   <div style={{ height: 4, background: 'var(--surface-3)', borderRadius: 999, overflow: 'hidden' }}>
@@ -642,7 +774,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Header + export */}
             <div className="card" style={{ padding: '18px 22px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 2, letterSpacing: '-0.012em' }}>
@@ -656,29 +787,13 @@ export default function Home() {
               {!loading && <ExportButton questions={questions} starred={starred} />}
             </div>
 
-            {/* Search */}
-            <div
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 14px',
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--r-md)',
-                marginBottom: 12,
-              }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', marginBottom: 12 }}>
               <span style={{ color: 'var(--text-4)' }}><Icon.Search /></span>
               <input
-                ref={searchRef}
-                type="text"
-                value={search}
+                ref={searchRef} type="text" value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder='Search questions, situations, results…  (press / to focus)'
-                style={{
-                  flex: 1, border: 'none', outline: 'none',
-                  fontSize: 13.5, color: 'var(--text)',
-                  fontFamily: 'inherit',
-                }}
+                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13.5, color: 'var(--text)', fontFamily: 'inherit' }}
               />
               {search && (
                 <button onClick={() => setSearch('')} className="btn btn-ghost" style={{ padding: 5, color: 'var(--text-3)' }}>
@@ -687,7 +802,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* Filter tabs */}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
               {FILTER_TABS.map(tab => {
                 const active = filter === tab.id
@@ -697,8 +811,7 @@ export default function Home() {
                     key={tab.id}
                     onClick={() => setFilter(tab.id)}
                     style={{
-                      padding: '6px 12px',
-                      borderRadius: 999,
+                      padding: '6px 12px', borderRadius: 999,
                       fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
                       border: `1px solid ${active ? 'var(--text)' : 'var(--border)'}`,
                       background: active ? 'var(--text)' : 'var(--surface)',
@@ -715,16 +828,7 @@ export default function Home() {
                     )}
                     {tab.label}
                     {counts[tab.id] > 0 && (
-                      <span
-                        style={{
-                          padding: '0 6px', minWidth: 18, height: 18,
-                          background: active ? 'rgba(255,255,255,0.18)' : 'var(--surface-2)',
-                          borderRadius: 999, fontSize: 11, fontWeight: 600,
-                          color: active ? '#FFF' : 'var(--text-3)',
-                          fontVariantNumeric: 'tabular-nums',
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        }}
-                      >
+                      <span style={{ padding: '0 6px', minWidth: 18, height: 18, background: active ? 'rgba(255,255,255,0.18)' : 'var(--surface-2)', borderRadius: 999, fontSize: 11, fontWeight: 600, color: active ? '#FFF' : 'var(--text-3)', fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                         {counts[tab.id]}
                       </span>
                     )}
@@ -733,7 +837,6 @@ export default function Home() {
               })}
             </div>
 
-            {/* Cards */}
             <div>
               {filtered.length === 0 && !loading && (
                 <div className="card" style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-3)', fontSize: 14 }}>
@@ -745,20 +848,15 @@ export default function Home() {
                 </div>
               )}
               {filtered.map((q, i) => (
-                <QuestionCard
-                  key={q.id} q={q} index={i}
-                  starred={starred.has(q.id)}
-                  onToggleStar={toggleStar}
-                />
+                <QuestionCard key={q.id} q={q} index={i} starred={starred.has(q.id)} onToggleStar={toggleStar} />
               ))}
             </div>
 
-            {/* Done card */}
-            {!loading && questions.length === 30 && (
+            {!loading && questions.length >= totalRequested && (
               <div className="card" style={{ padding: 22, marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
                 <div>
                   <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
-                    All 30 questions ready
+                    All {questions.length} questions ready
                   </p>
                   <p style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
                     Export full set or just your starred ones.
@@ -771,43 +869,18 @@ export default function Home() {
         )}
       </main>
 
-      {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer
-        style={{
-          maxWidth: 1320, margin: '0 auto',
-          padding: '0 24px 32px',
-          fontSize: 11.5, color: 'var(--text-4)',
-          display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
-        }}
-      >
+      <footer style={{ maxWidth: 1320, margin: '0 auto', padding: '0 24px 32px', fontSize: 11.5, color: 'var(--text-4)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <span>© {new Date().getFullYear()} Interview Coach</span>
         <span>Press <kbd style={kbdStyle}>?</kbd> for keyboard shortcuts</span>
       </footer>
 
-      {/* ── Shortcuts modal ──────────────────────────────────────────── */}
+      {/* Shortcuts modal */}
       {showShortcuts && (
-        <div
-          onClick={() => setShowShortcuts(false)}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(10, 10, 10, 0.45)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000,
-            padding: 20,
-            animation: 'fadeIn 0.18s ease',
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            className="card-elevated slide-up-sm"
-            style={{ padding: 28, maxWidth: 380, width: '100%' }}
-          >
+        <div onClick={() => setShowShortcuts(false)} style={modalBackdropStyle}>
+          <div onClick={e => e.stopPropagation()} className="card-elevated slide-up-sm" style={{ padding: 28, maxWidth: 380, width: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
               <h3 style={{ fontSize: 16, fontWeight: 600 }}>Keyboard shortcuts</h3>
-              <button onClick={() => setShowShortcuts(false)} className="btn btn-ghost" style={{ padding: 6 }}>
-                <Icon.X />
-              </button>
+              <button onClick={() => setShowShortcuts(false)} className="btn btn-ghost" style={{ padding: 6 }}><Icon.X /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
@@ -826,19 +899,112 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Resume manager modal */}
+      {showResumeManager && (
+        <div onClick={() => setShowResumeManager(false)} style={modalBackdropStyle}>
+          <div onClick={e => e.stopPropagation()} className="card-elevated slide-up-sm" style={{ padding: 28, maxWidth: 480, width: '100%', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600 }}>Saved résumés</h3>
+              <button onClick={() => setShowResumeManager(false)} className="btn btn-ghost" style={{ padding: 6 }}><Icon.X /></button>
+            </div>
+            <p style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 16 }}>
+              Stored on this device. Pick to load it as your résumé.
+            </p>
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {savedResumes.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--text-3)', textAlign: 'center', padding: '20px 0' }}>
+                  No saved résumés yet.
+                </p>
+              ) : (
+                savedResumes.map(r => (
+                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: r.id === activeResumeId ? 'var(--brand-soft)' : 'var(--surface-2)' }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.name}
+                      </p>
+                      <p style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                        {wordCount(r.content)} words · saved {new Date(r.addedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div style={{ display: 'inline-flex', gap: 6 }}>
+                      <button
+                        onClick={() => { handleSelectSaved(r.id); setShowResumeManager(false) }}
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11.5, padding: '5px 10px' }}
+                      >
+                        {r.id === activeResumeId ? 'In use' : 'Use'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSaved(r.id)}
+                        className="btn btn-ghost"
+                        style={{ fontSize: 11.5, padding: '5px 8px', color: 'var(--danger)' }}
+                        title="Delete"
+                      >
+                        <Icon.Trash />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
+// ── Sub-components ───────────────────────────────────────────────────────────
+function CountRow({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  return (
+    <>
+      <span style={{ fontSize: 13, color: 'var(--text)' }}>{label}</span>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+        <button
+          onClick={() => onChange(Math.max(0, value - 1))}
+          aria-label="Decrease"
+          style={stepBtn}
+        >−</button>
+        <input
+          type="number"
+          min={0}
+          max={30}
+          value={value}
+          onChange={e => onChange(Math.max(0, Math.min(30, parseInt(e.target.value || '0', 10))))}
+          style={numInputStyle}
+        />
+        <button
+          onClick={() => onChange(Math.min(30, value + 1))}
+          aria-label="Increase"
+          style={stepBtn}
+        >+</button>
+      </div>
+    </>
+  )
+}
+
+const stepBtn: React.CSSProperties = {
+  width: 24, height: 24, borderRadius: 6,
+  border: '1px solid var(--border)', background: 'var(--surface)',
+  color: 'var(--text-2)', cursor: 'pointer', fontSize: 14,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  fontFamily: 'inherit', userSelect: 'none', transition: 'background 0.15s, border-color 0.15s',
+}
+
 const kbdStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '2px 8px',
-  fontSize: 11.5,
+  display: 'inline-block', padding: '2px 8px', fontSize: 11.5,
   fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-  color: 'var(--text-2)',
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderBottomWidth: 2,
-  borderRadius: 5,
-  fontWeight: 600,
+  color: 'var(--text-2)', background: 'var(--surface)',
+  border: '1px solid var(--border)', borderBottomWidth: 2,
+  borderRadius: 5, fontWeight: 600,
+}
+
+const modalBackdropStyle: React.CSSProperties = {
+  position: 'fixed', inset: 0,
+  background: 'rgba(10, 10, 10, 0.45)',
+  backdropFilter: 'blur(4px)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  zIndex: 1000, padding: 20,
+  animation: 'fadeIn 0.18s ease',
 }
