@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import QuestionCard from '@/components/QuestionCard'
 import ExportButton from '@/components/ExportButton'
+import SkeletonCard from '@/components/SkeletonCard'
+import HowItWorks  from '@/components/HowItWorks'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface Question {
@@ -49,6 +51,45 @@ const DEFAULT_CATEGORIES: Record<Cat, number> = {
 const DEFAULT_DIFFICULTIES: Record<Diff, number> = {
   easy: 5, medium: 14, hard: 6,
 }
+
+// ── Sample data (used by the "Try with sample" button) ──────────────────────
+const SAMPLE_JD = `Senior Software Engineer — Payments Platform
+About Stripe
+Stripe builds economic infrastructure for the internet. We are looking for a Senior Software Engineer to join our Payments Platform team, owning critical services that move billions of dollars annually.
+
+Responsibilities
+• Design and ship high-throughput, low-latency services in Java and Go
+• Lead architectural decisions for payment authorization, capture, and settlement flows
+• Partner with product, design, and risk teams to deliver features end-to-end
+• Mentor mid-level engineers and raise the team's quality bar
+• Own production reliability — be on-call and drive incident postmortems
+
+Requirements
+• 5+ years of backend experience at scale
+• Deep expertise in distributed systems (Kafka, gRPC, PostgreSQL)
+• Strong fundamentals in API design, idempotency, and eventual consistency
+• Experience with financial systems or regulated environments is a plus
+• Excellent written and verbal communication`
+
+const SAMPLE_RESUME = `Mohith Reddy Pune — Full-Stack Software Engineer
+3+ years building scalable enterprise applications
+
+EXPERIENCE
+Software Engineer — Morgan Stanley (2022–Present)
+• Led migration of legacy SOAP services to Spring Boot REST, reducing p99 latency by 42% (450ms → 260ms)
+• Designed Kafka-based event pipeline handling 1.6M transactions/day with 99.97% delivery SLA
+• Mentored 3 junior engineers; introduced code review rubric adopted across the team of 12
+
+Software Developer — Infosys (2021–2022)
+• Built React/Angular dashboards for a Fortune-500 retail client serving 280k daily active users
+• Cut bundle size 38% via code-splitting and dynamic imports, dropping TTI from 4.1s to 2.4s
+• Wrote integration tests in Jest + Cypress, raising coverage from 41% to 78%
+
+PROJECTS
+Interview Coach (2024) — AI-personalized interview prep tool. Next.js, Groq Llama 3.3, streaming JSONL.
+
+SKILLS
+Java, Spring Boot, Go, Kafka, PostgreSQL, React, Angular, TypeScript, AWS (EC2, S3, Lambda), Docker, Kubernetes, Jenkins`
 
 // ── PWA install ──────────────────────────────────────────────────────────────
 interface BeforeInstallPromptEvent extends Event {
@@ -108,6 +149,7 @@ export default function Home() {
   const [search,       setSearch]       = useState('')
   const [starred,      setStarred]      = useState<Set<number>>(new Set())
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
 
   // Saved résumés
@@ -127,28 +169,45 @@ export default function Home() {
   const searchRef  = useRef<HTMLInputElement>(null)
 
   // ── localStorage hydrate ────────────────────────────────────────────
+  // Hydration must complete BEFORE save effects run, otherwise React's
+  // initial render writes the empty default arrays back over the stored data.
+  const [hydrated, setHydrated] = useState(false)
+
   useEffect(() => {
     try {
       const s = localStorage.getItem(STARRED_KEY)
       if (s) setStarred(new Set(JSON.parse(s)))
       const r = localStorage.getItem(RESUMES_KEY)
-      if (r) setSavedResumes(JSON.parse(r))
+      if (r) {
+        const parsed = JSON.parse(r)
+        if (Array.isArray(parsed)) setSavedResumes(parsed)
+      }
     } catch { /* noop */ }
+    setHydrated(true)
   }, [])
 
   useEffect(() => {
+    if (!hydrated) return
     try { localStorage.setItem(STARRED_KEY, JSON.stringify(Array.from(starred))) } catch {}
-  }, [starred])
+  }, [starred, hydrated])
 
   useEffect(() => {
+    if (!hydrated) return
     try { localStorage.setItem(RESUMES_KEY, JSON.stringify(savedResumes)) } catch {}
-  }, [savedResumes])
+  }, [savedResumes, hydrated])
 
   // ── PWA install ─────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e as BeforeInstallPromptEvent) }
     window.addEventListener('beforeinstallprompt', handler)
     return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  // ── Scroll listener for the floating "back to top" button ──────────
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 320)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   const handleInstall = async () => {
@@ -193,6 +252,23 @@ export default function Home() {
     })
   }, [])
 
+  // ── Toast ───────────────────────────────────────────────────────────
+  const [toast, setToast] = useState<{ msg: string; kind: 'success' | 'info' } | null>(null)
+  const showToast = (msg: string, kind: 'success' | 'info' = 'success') => {
+    setToast({ msg, kind })
+    setTimeout(() => setToast(null), 2400)
+  }
+
+  // ── Try with sample data ───────────────────────────────────────────
+  const fillSample = () => {
+    setJd(SAMPLE_JD)
+    setResume(SAMPLE_RESUME)
+    setActiveResumeId(null)
+    setInputTab('paste')
+    setError('')
+    showToast('Sample data loaded — click Generate', 'info')
+  }
+
   // ── Saved résumés ───────────────────────────────────────────────────
   const handleSaveResume = () => {
     const name = (saveName.trim() || `Résumé ${savedResumes.length + 1}`).slice(0, 60)
@@ -204,6 +280,7 @@ export default function Home() {
     setActiveResumeId(id)
     setShowSaveInput(false)
     setSaveName('')
+    showToast(`Saved "${name}"`)
   }
 
   const handleSelectSaved = (id: string) => {
@@ -212,11 +289,14 @@ export default function Home() {
     setResume(r.content)
     setActiveResumeId(id)
     setInputTab('paste')
+    showToast(`Loaded "${r.name}"`, 'info')
   }
 
   const handleDeleteSaved = (id: string) => {
-    setSavedResumes(prev => prev.filter(r => r.id !== id))
+    const r = savedResumes.find(x => x.id === id)
+    setSavedResumes(prev => prev.filter(x => x.id !== id))
     if (activeResumeId === id) setActiveResumeId(null)
+    if (r) showToast(`Deleted "${r.name}"`, 'info')
   }
 
   // ── PDF upload ──────────────────────────────────────────────────────
@@ -374,8 +454,32 @@ export default function Home() {
           borderBottom: '1px solid var(--border)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--text)', color: '#FFF', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        <a
+          href="/"
+          onClick={e => {
+            e.preventDefault()
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 10,
+            textDecoration: 'none',
+            padding: '6px 8px',
+            margin: '-6px -8px',
+            borderRadius: 10,
+            transition: 'background 0.15s var(--ease-out), transform 0.15s var(--ease-out)',
+            cursor: 'pointer',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          aria-label="Home"
+        >
+          <span style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: 'linear-gradient(135deg, #1F1F22 0%, #0A0A0A 100%)',
+            color: '#FFF',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: 'inset 0 0.5px 0 rgba(255,255,255,0.16), 0 1px 2px rgba(0,0,0,0.15)',
+          }}>
             <Icon.Logo />
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
@@ -386,7 +490,7 @@ export default function Home() {
               Personalized prep, written from your résumé
             </span>
           </div>
-        </div>
+        </a>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {installPrompt && (
@@ -420,11 +524,11 @@ export default function Home() {
                 <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--success)' }} />
                 Live · {totalRequested} questions in seconds
               </span>
-              <h1 className="slide-up" style={{ fontSize: 'clamp(36px, 5vw, 50px)', fontWeight: 600, lineHeight: 1.06, letterSpacing: '-0.035em', marginBottom: 18, color: 'var(--text)' }}>
+              <h1 className="slide-up aurora-text" style={{ fontSize: 'clamp(36px, 5vw, 50px)', fontWeight: 600, lineHeight: 1.06, letterSpacing: '-0.035em', marginBottom: 18 }}>
                 Interview prep,{' '}
                 <span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>written from</span>
                 <br />
-                your <span className="shimmer">actual experience</span>.
+                your actual experience.
               </h1>
               <p className="slide-up" style={{ color: 'var(--text-3)', fontSize: 15.5, maxWidth: 520, margin: '0 auto', lineHeight: 1.6, animationDelay: '0.05s' }}>
                 Drop in a job description and your résumé. Get role-specific questions and STAR answers from the work you&apos;ve actually done.
@@ -736,14 +840,54 @@ export default function Home() {
             </button>
 
             {!hasResults && (
-              <div style={{ marginTop: 18, padding: 14, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
-                <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>For best results</p>
-                <ul style={{ paddingLeft: 16, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
-                  <li>Paste the <strong style={{ color: 'var(--text)' }}>full</strong> JD — not just the title</li>
-                  <li>Include <strong style={{ color: 'var(--text)' }}>metrics</strong> in your résumé</li>
-                  <li>List specific <strong style={{ color: 'var(--text)' }}>technologies</strong> per role</li>
-                </ul>
-              </div>
+              <>
+                {/* Try with sample */}
+                <div
+                  style={{
+                    marginTop: 14,
+                    padding: '12px 14px',
+                    background: 'linear-gradient(180deg, var(--brand-soft) 0%, rgba(238, 242, 255, 0.5) 100%)',
+                    border: '1px solid #C7D2FE',
+                    borderRadius: 'var(--r-md)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <p style={{ fontSize: 12.5, fontWeight: 600, color: '#3730A3', marginBottom: 1 }}>
+                      First time?
+                    </p>
+                    <p style={{ fontSize: 11.5, color: '#4338CA' }}>
+                      Load a Stripe JD + sample résumé to see how it works.
+                    </p>
+                  </div>
+                  <button
+                    onClick={fillSample}
+                    className="btn"
+                    style={{
+                      background: '#FFFFFF',
+                      color: 'var(--brand)',
+                      border: '1px solid #C7D2FE',
+                      fontSize: 12, padding: '6px 12px', fontWeight: 600,
+                      boxShadow: 'var(--shadow-xs)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Try sample
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 14, padding: 14, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
+                  <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>For best results</p>
+                  <ul style={{ paddingLeft: 16, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
+                    <li>Paste the <strong style={{ color: 'var(--text)' }}>full</strong> JD — not just the title</li>
+                    <li>Include <strong style={{ color: 'var(--text)' }}>metrics</strong> in your résumé</li>
+                    <li>List specific <strong style={{ color: 'var(--text)' }}>technologies</strong> per role</li>
+                  </ul>
+                </div>
+              </>
             )}
           </div>
 
@@ -850,6 +994,15 @@ export default function Home() {
               {filtered.map((q, i) => (
                 <QuestionCard key={q.id} q={q} index={i} starred={starred.has(q.id)} onToggleStar={toggleStar} />
               ))}
+
+              {/* Skeleton placeholders for remaining questions while streaming */}
+              {loading && filter === 'all' && !search && (
+                <>
+                  {Array.from({ length: Math.max(0, Math.min(6, totalRequested - questions.length)) }).map((_, i) => (
+                    <SkeletonCard key={`sk-${i}`} delay={i * 60} />
+                  ))}
+                </>
+              )}
             </div>
 
             {!loading && questions.length >= totalRequested && (
@@ -868,6 +1021,9 @@ export default function Home() {
           </section>
         )}
       </main>
+
+      {/* How it works — landing state only */}
+      {!hasResults && <HowItWorks />}
 
       <footer style={{ maxWidth: 1320, margin: '0 auto', padding: '0 24px 32px', fontSize: 11.5, color: 'var(--text-4)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <span>© {new Date().getFullYear()} Interview Coach</span>
@@ -949,6 +1105,75 @@ export default function Home() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Scroll-to-top floating button */}
+      <button
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        aria-label="Scroll to top"
+        title="Back to top"
+        style={{
+          position: 'fixed',
+          right: 22,
+          bottom: 22,
+          zIndex: 90,
+          width: 42, height: 42,
+          borderRadius: '50%',
+          background: 'var(--surface)',
+          border: '1px solid var(--border-2)',
+          color: 'var(--text-2)',
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: 'var(--shadow-md)',
+          opacity: scrolled ? 1 : 0,
+          transform: scrolled ? 'translateY(0) scale(1)' : 'translateY(12px) scale(0.9)',
+          pointerEvents: scrolled ? 'auto' : 'none',
+          transition: 'opacity 0.25s var(--ease-out), transform 0.25s var(--ease-spring), background 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)' }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="19" x2="12" y2="5"/>
+          <polyline points="5 12 12 5 19 12"/>
+        </svg>
+      </button>
+
+      {/* Toast */}
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1100,
+            padding: '10px 16px',
+            background: toast.kind === 'success' ? '#0F172A' : '#1E293B',
+            color: '#FFFFFF',
+            borderRadius: 999,
+            boxShadow: '0 14px 32px -8px rgba(15,23,42,0.35), 0 4px 12px -2px rgba(15,23,42,0.20)',
+            fontSize: 13,
+            fontWeight: 500,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            animation: 'toastIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both',
+          }}
+        >
+          <span style={{
+            width: 18, height: 18, borderRadius: '50%',
+            background: toast.kind === 'success' ? 'var(--success)' : 'var(--brand)',
+            color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon.Check />
+          </span>
+          {toast.msg}
         </div>
       )}
     </div>
