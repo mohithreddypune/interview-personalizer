@@ -3,8 +3,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import QuestionCard from '@/components/QuestionCard'
 import ExportButton from '@/components/ExportButton'
-import SkeletonCard from '@/components/SkeletonCard'
-import HowItWorks  from '@/components/HowItWorks'
+import SkeletonCard    from '@/components/SkeletonCard'
+import HowItWorks      from '@/components/HowItWorks'
+import StatsStrip      from '@/components/StatsStrip'
+import CompaniesStrip  from '@/components/CompaniesStrip'
+import Features        from '@/components/Features'
+import FAQ             from '@/components/FAQ'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface Question {
@@ -1022,8 +1026,16 @@ export default function Home() {
         )}
       </main>
 
-      {/* How it works — landing state only */}
-      {!hasResults && <HowItWorks />}
+      {/* Landing-state sections (hidden once questions appear) */}
+      {!hasResults && (
+        <>
+          <StatsStrip />
+          <CompaniesStrip />
+          <HowItWorks />
+          <Features />
+          <FAQ />
+        </>
+      )}
 
       <footer style={{ maxWidth: 1320, margin: '0 auto', padding: '0 24px 32px', fontSize: 11.5, color: 'var(--text-4)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <span>© {new Date().getFullYear()} Interview Coach</span>
